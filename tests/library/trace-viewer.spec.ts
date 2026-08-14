@@ -598,6 +598,33 @@ test('should syntax highlight body', async ({ page, runAndTrace, server }) => {
   await expect(keyword).toHaveClass('cm-keyword');
 });
 
+test('should preserve big integers in pretty-printed body', async ({ page, runAndTrace, server }) => {
+  const traceViewer = await runAndTrace(async () => {
+    server.setRoute('/api/big-integers', (_, res) => {
+      res.setHeader('Content-Type', 'application/json');
+      res.end('{"responseId":9007199254740995,"negativeResponseId":-9007199254740995}');
+    });
+    await page.goto(`${server.PREFIX}/network-tab/big-integers.html`);
+    await page.evaluate(() => (window as any).donePromise);
+  });
+  await traceViewer.selectAction('Navigate');
+  await traceViewer.showNetworkTab();
+
+  await traceViewer.networkRequests.getByText('big-integers', { exact: true }).click();
+
+  await traceViewer.networkTab.getByRole('tab', { name: 'Payload' }).click();
+  const payloadPanel = traceViewer.networkTab.getByRole('tabpanel', { name: 'Payload' });
+  await expect(payloadPanel).toContainText('9007199254740992');
+  await payloadPanel.getByRole('button', { name: 'Preserve big integers' }).click();
+  await expect(payloadPanel).toContainText('9007199254740993');
+  await expect(payloadPanel).toContainText('-9007199254740993');
+
+  await traceViewer.networkTab.getByRole('tab', { name: 'Response' }).click();
+  const responsePanel = traceViewer.networkTab.getByRole('tabpanel', { name: 'Response' });
+  await expect(responsePanel).toContainText('9007199254740995');
+  await expect(responsePanel).toContainText('-9007199254740995');
+});
+
 test('should filter network requests by url', async ({ page, runAndTrace, server }) => {
   const traceViewer = await runAndTrace(async () => {
     await page.goto(`${server.PREFIX}/network-tab/network.html`);

@@ -126,6 +126,16 @@ const FormatToggleButton: React.FC<{
   }}/>;
 };
 
+const PreserveBigIntegersToggleButton: React.FC<{
+  toggled: boolean;
+  onToggle: () => void;
+}> = ({ toggled, onToggle }) => {
+  return <ToolbarButton icon='symbol-numeric' title='Preserve big integers' toggled={toggled} onClick={e => {
+    e.stopPropagation();
+    onToggle();
+  }}/>;
+};
+
 const ExpandableSection: React.FC<{
   title: string;
   showCount?: boolean,
@@ -190,9 +200,10 @@ const PayloadTab: React.FunctionComponent<{
   requestBody: RequestBody,
 }> = ({ resource, requestBody }) => {
   const [showFormatted, setShowFormatted] = useSetting('trace-viewer-network-details-show-formatted-payload', true);
+  const [preserveBigIntegers, setPreserveBigIntegers] = useSetting('trace-viewer-network-details-preserve-big-integers', false);
   const hasQueryString = resource.request.queryString.length > 0;
   const hasRequestBody = !!(requestBody || resource.request.postData);
-  const formatResult = useFormattedBody(requestBody, showFormatted);
+  const formatResult = useFormattedBody(requestBody, showFormatted, preserveBigIntegers);
 
   return <div className='vbox network-request-details-tab'>
     {!hasQueryString && !hasRequestBody && <em className='network-request-no-payload'>No payload for this request.</em>}
@@ -200,6 +211,7 @@ const PayloadTab: React.FunctionComponent<{
     {requestBody && <ExpandableSection title='Request Body' className='network-request-request-body' titleChildren={
       <>
         <div style={{ margin: 'auto' }}></div>
+        <PreserveBigIntegersToggleButton toggled={preserveBigIntegers} onToggle={() => setPreserveBigIntegers(!preserveBigIntegers)} />
         <FormatToggleButton toggled={showFormatted} error={formatResult.error} onToggle={() => setShowFormatted(!showFormatted)} />
       </>
     }>
@@ -241,7 +253,8 @@ const ResponseTab: React.FunctionComponent<{
   }, [resource, model]);
 
   const [showFormattedResponse, setShowFormattedResponse] = useSetting('trace-viewer-network-details-show-formatted-response', true);
-  const formatResult = useFormattedBody(responseBody, showFormattedResponse);
+  const [preserveBigIntegers, setPreserveBigIntegers] = useSetting('trace-viewer-network-details-preserve-big-integers', false);
+  const formatResult = useFormattedBody(responseBody, showFormattedResponse, preserveBigIntegers);
 
   return <div className='vbox network-request-details-tab'>
     {!resource.response.content._file && <div>Response body is not available for this request.</div>}
@@ -251,6 +264,7 @@ const ResponseTab: React.FunctionComponent<{
       <CodeMirrorWrapper text={formatResult.text} mimeType={responseBody.mimeType} readOnly lineNumbers={true}/>
       <Toolbar noShadow={true} noMinHeight={true} className='network-response-toolbar'>
         <div style={{ margin: 'auto' }}></div>
+        <PreserveBigIntegersToggleButton toggled={preserveBigIntegers} onToggle={() => setPreserveBigIntegers(!preserveBigIntegers)} />
         <FormatToggleButton toggled={showFormattedResponse} error={formatResult.error} onToggle={() => setShowFormattedResponse(!showFormattedResponse)} />
       </Toolbar>
     </div>}
@@ -511,9 +525,12 @@ function formatXml(xml: string, indent = '  ') {
   return lines.join('\n');
 }
 
-function formatBody(body: string, contentType?: string): string {
+function formatBody(body: string, contentType?: string, preserveBigIntegers = false): string {
   if (!body.trim() || !contentType)
     return body;
+
+  if (isJsonMimeType(contentType) && preserveBigIntegers)
+    return formatJsonPreservingBigIntegers(body);
 
   if (isJsonMimeType(contentType))
     return JSON.stringify(JSON.parse(body), null, 2);
@@ -527,7 +544,29 @@ function formatBody(body: string, contentType?: string): string {
   return body;
 }
 
-const useFormattedBody = (body: FormattableBody, showFormatted: boolean) => {
+function formatJsonPreservingBigIntegers(json: string): string {
+  let marker = '\uE000__playwright_bigint__';
+  while (json.includes(marker))
+    marker += '_';
+  const bigIntegers: string[] = [];
+  const parseWithSource = JSON.parse as (text: string, reviver: (key: string, value: unknown, context?: { source?: string }) => unknown) => unknown;
+  const parsed = parseWithSource(json, (_key, value, context) => {
+    if (typeof value !== 'number' || !context?.source || !/^-?(?:0|[1-9]\d*)$/.test(context.source))
+      return value;
+    const source = context.source;
+    const integer = BigInt(source);
+    if (integer <= BigInt(Number.MAX_SAFE_INTEGER) && integer >= BigInt(Number.MIN_SAFE_INTEGER))
+      return value;
+    const index = bigIntegers.push(source) - 1;
+    return `${marker}${index}`;
+  });
+  let formatted = JSON.stringify(parsed, null, 2);
+  for (let i = 0; i < bigIntegers.length; ++i)
+    formatted = formatted.replace(JSON.stringify(`${marker}${i}`), bigIntegers[i]);
+  return formatted;
+}
+
+const useFormattedBody = (body: FormattableBody, showFormatted: boolean, preserveBigIntegers = false) => {
   return React.useMemo(() => {
     if (body?.text === undefined)
       return { text: '' };
@@ -536,11 +575,11 @@ const useFormattedBody = (body: FormattableBody, showFormatted: boolean) => {
       return { text: body.text };
 
     try {
-      return { text: formatBody(body.text, body.mimeType) };
+      return { text: formatBody(body.text, body.mimeType, preserveBigIntegers) };
     } catch {
       return { text: body.text, error: true };
     }
-  }, [body, showFormatted]);
+  }, [body, showFormatted, preserveBigIntegers]);
 };
 
 function base64ByteLength(data: string): number {

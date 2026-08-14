@@ -1,0 +1,20 @@
+<html>
+  <head>
+    <title>Trace Viewer big integer demo</title>
+  </head>
+  <body>
+    <h1>Trace Viewer big integer demo</h1>
+    <p>This request and response contain integer literals that cannot be represented exactly by a JavaScript Number.</p>
+    <pre id="result">Sending request…</pre>
+    <script>
+      const body = '{"requestId":9007199254740993,"negativeRequestId":-9007199254740993}';
+      window.donePromise = fetch('/api/big-integers', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body,
+      }).then(async response => {
+        document.querySelector('#result').textContent = await response.text();
+      });
+    </script>
+  </body>
+</html>
