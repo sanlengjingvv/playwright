@@ -142,11 +142,10 @@ const FormatToggleButton: React.FC<{
 
 const CustomFormatToggleButton: React.FC<{
   toggled: boolean;
-  disabled: boolean;
   error?: boolean;
   onToggle: () => void;
-}> = ({ toggled, disabled, error, onToggle }) => {
-  return <ToolbarButton icon='symbol-method' title='Customize pretty print' toggled={toggled} disabled={disabled} errorBadge={error ? 'Custom formatting failed' : undefined} onClick={e => {
+}> = ({ toggled, error, onToggle }) => {
+  return <ToolbarButton icon='symbol-method' title='Customize pretty print' toggled={toggled} errorBadge={error ? 'Custom formatting failed' : undefined} onClick={e => {
     e.stopPropagation();
     onToggle();
   }}/>;
@@ -221,6 +220,15 @@ const PayloadTab: React.FunctionComponent<{
   const hasQueryString = resource.request.queryString.length > 0;
   const hasRequestBody = !!(requestBody || resource.request.postData);
   const formatResult = useFormattedBody(requestBody, showFormatted, showCustomFormatted, customFormatter, resource, 'request');
+  const toggleFormatted = () => {
+    setShowFormatted(!showFormatted || showCustomFormatted);
+    setShowCustomFormatted(false);
+  };
+  const toggleCustomFormatted = () => {
+    setShowCustomFormatted(!showCustomFormatted);
+    if (!showCustomFormatted)
+      setShowFormatted(false);
+  };
 
   return <div className='vbox network-request-details-tab'>
     {!hasQueryString && !hasRequestBody && <em className='network-request-no-payload'>No payload for this request.</em>}
@@ -228,8 +236,8 @@ const PayloadTab: React.FunctionComponent<{
     {requestBody && <ExpandableSection title='Request Body' className='network-request-request-body' titleChildren={
       <>
         <div style={{ margin: 'auto' }}></div>
-        {customFormatter && <CustomFormatToggleButton toggled={showCustomFormatted} disabled={!showFormatted} error={formatResult.customError} onToggle={() => setShowCustomFormatted(!showCustomFormatted)} />}
-        <FormatToggleButton toggled={showFormatted} error={formatResult.error} onToggle={() => setShowFormatted(!showFormatted)} />
+        {customFormatter && <CustomFormatToggleButton toggled={showCustomFormatted} error={formatResult.customError} onToggle={toggleCustomFormatted} />}
+        <FormatToggleButton toggled={showFormatted && !showCustomFormatted} error={formatResult.error} onToggle={toggleFormatted} />
       </>
     }>
       <CodeMirrorWrapper text={formatResult.text} mimeType={requestBody.mimeType} readOnly lineNumbers={true}/>
@@ -278,6 +286,15 @@ const ResponseTab: React.FunctionComponent<{
   const [showFormattedResponse, setShowFormattedResponse] = useSetting('trace-viewer-network-details-show-formatted-response', true);
   const [showCustomFormattedResponse, setShowCustomFormattedResponse] = useSetting('trace-viewer-network-details-show-custom-formatted-response', false);
   const formatResult = useFormattedBody(responseBody, showFormattedResponse, showCustomFormattedResponse, customFormatter, resource, 'response');
+  const toggleFormattedResponse = () => {
+    setShowFormattedResponse(!showFormattedResponse || showCustomFormattedResponse);
+    setShowCustomFormattedResponse(false);
+  };
+  const toggleCustomFormattedResponse = () => {
+    setShowCustomFormattedResponse(!showCustomFormattedResponse);
+    if (!showCustomFormattedResponse)
+      setShowFormattedResponse(false);
+  };
 
   return <div className='vbox network-request-details-tab'>
     {!resource.response.content._file && <div>Response body is not available for this request.</div>}
@@ -287,8 +304,8 @@ const ResponseTab: React.FunctionComponent<{
       <CodeMirrorWrapper text={formatResult.text} mimeType={responseBody.mimeType} readOnly lineNumbers={true}/>
       <Toolbar noShadow={true} noMinHeight={true} className='network-response-toolbar'>
         <div style={{ margin: 'auto' }}></div>
-        {customFormatter && <CustomFormatToggleButton toggled={showCustomFormattedResponse} disabled={!showFormattedResponse} error={formatResult.customError} onToggle={() => setShowCustomFormattedResponse(!showCustomFormattedResponse)} />}
-        <FormatToggleButton toggled={showFormattedResponse} error={formatResult.error} onToggle={() => setShowFormattedResponse(!showFormattedResponse)} />
+        {customFormatter && <CustomFormatToggleButton toggled={showCustomFormattedResponse} error={formatResult.customError} onToggle={toggleCustomFormattedResponse} />}
+        <FormatToggleButton toggled={showFormattedResponse && !showCustomFormattedResponse} error={formatResult.error} onToggle={toggleFormattedResponse} />
       </Toolbar>
     </div>}
   </div>;
@@ -572,22 +589,21 @@ const useFormattedBody = (
   resource?: ResourceSnapshot,
   kind?: 'request' | 'response',
 ) => {
-  const defaultResult = React.useMemo<FormattedBodyResult>(() => {
+  const rawResult = React.useMemo<FormattedBodyResult>(() => ({ text: body?.text || '' }), [body]);
+  const builtInResult = React.useMemo<FormattedBodyResult>(() => {
     if (body?.text === undefined)
       return { text: '' };
-
-    if (!showFormatted)
-      return { text: body.text };
 
     try {
       return { text: formatBody(body.text, body.mimeType) };
     } catch {
       return { text: body.text, error: true };
     }
-  }, [body, showFormatted]);
+  }, [body]);
+  const defaultResult = showFormatted ? builtInResult : rawResult;
 
   const customResult = useAsyncMemo<CustomFormattedBodyResult | undefined>(async () => {
-    if (!showFormatted || !showCustomFormatted || !customFormatter || !resource || !kind || body?.bytes === undefined)
+    if (!showCustomFormatted || !customFormatter || !resource || !kind || body?.bytes === undefined)
       return undefined;
     try {
       const text = await customFormatter({
@@ -599,7 +615,7 @@ const useFormattedBody = (
       });
       return {
         // Returning undefined opts into the existing built-in formatter and its error handling.
-        result: text === undefined ? defaultResult : { text },
+        result: text === undefined ? builtInResult : { text },
         body,
         formatter: customFormatter,
         resource,
@@ -614,9 +630,9 @@ const useFormattedBody = (
         kind,
       };
     }
-  }, [body, customFormatter, defaultResult.text, kind, resource, showCustomFormatted, showFormatted], undefined);
+  }, [body, builtInResult, customFormatter, defaultResult.text, kind, resource, showCustomFormatted], undefined);
 
-  if (showFormatted && showCustomFormatted && customFormatter &&
+  if (showCustomFormatted && customFormatter &&
       customResult?.body === body && customResult.formatter === customFormatter &&
       customResult.resource === resource && customResult.kind === kind)
     return customResult.result;

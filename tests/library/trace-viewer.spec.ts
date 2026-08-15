@@ -672,6 +672,9 @@ test('should use project body formatter with show-trace', async ({ page, context
   await traceViewer.networkTab.getByRole('tab', { name: 'Response' }).click();
   const responsePanel = traceViewer.page.getByRole('tabpanel', { name: 'Response' });
   await expect(responsePanel.locator('.CodeMirror-code')).toContainText('9007199254740992');
+  await responsePanel.getByRole('button', { name: 'Pretty print', exact: true }).click();
+  await expect(responsePanel.locator('.CodeMirror-code')).toContainText('9007199254740993');
+  await expect(responsePanel.getByRole('button', { name: 'Customize pretty print', exact: true })).toBeEnabled();
   await responsePanel.getByRole('button', { name: 'Customize pretty print', exact: true }).click();
   await expect(responsePanel.locator('.CodeMirror-code .CodeMirror-line')).toHaveText([
     'custom response: {"id":9007199254740993}',

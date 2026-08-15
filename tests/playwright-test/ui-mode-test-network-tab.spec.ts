@@ -334,18 +334,24 @@ test('should customize pretty-printing with the project body formatter', async (
 
   const customPrettyPrint = responsePanel.getByRole('button', { name: 'Customize pretty print', exact: true });
   const prettyPrint = responsePanel.getByRole('button', { name: 'Pretty print', exact: true });
+  await prettyPrint.click();
+  await expect(responsePanel.locator('.CodeMirror-code .CodeMirror-line')).toHaveText([
+    '{"id":9007199254740993}',
+  ], { useInnerText: true });
+  await expect(customPrettyPrint).toBeEnabled();
+
+  // Custom formatting is a separate mode and can be selected directly from raw mode.
   await customPrettyPrint.click();
   await expect(responsePanel.locator('.CodeMirror-code .CodeMirror-line')).toHaveText([
     'custom response: {"id":9007199254740993}',
   ], { useInnerText: true });
 
-  // Raw mode remains independent and always shows the original body.
-  await prettyPrint.click();
+  // Turning custom formatting off returns to raw mode.
+  await customPrettyPrint.click();
   await expect(responsePanel.locator('.CodeMirror-code .CodeMirror-line')).toHaveText([
     '{"id":9007199254740993}',
   ], { useInnerText: true });
-  await expect(customPrettyPrint).toBeDisabled();
-  await prettyPrint.click();
+  await customPrettyPrint.click();
 
   await networkList.filter({ hasText: 'response-protobuf' }).click();
   // Do not show the previous request's custom result while the async formatter is pending.
