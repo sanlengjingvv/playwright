@@ -171,6 +171,10 @@ export class TestServerConnection implements TestServerInterface, TestServerInte
     await this._sendMessage('ping', params);
   }
 
+  async traceViewerInfo(params: Parameters<TestServerInterface['traceViewerInfo']>[0]): ReturnType<TestServerInterface['traceViewerInfo']> {
+    return await this._sendMessage('traceViewerInfo', params);
+  }
+
   async pingNoReply(params: Parameters<TestServerInterface['ping']>[0]) {
     this._sendMessageNoReply('ping', params);
   }
@@ -209,6 +213,10 @@ export class TestServerConnection implements TestServerInterface, TestServerInte
 
   async runGlobalSetup(params: Parameters<TestServerInterface['runGlobalSetup']>[0]): ReturnType<TestServerInterface['runGlobalSetup']> {
     return await this._sendMessage('runGlobalSetup', params);
+  }
+
+  async formatTraceViewerBody(params: Parameters<TestServerInterface['formatTraceViewerBody']>[0]): ReturnType<TestServerInterface['formatTraceViewerBody']> {
+    return await this._sendMessage('formatTraceViewerBody', params);
   }
 
   async runGlobalTeardown(params: Parameters<TestServerInterface['runGlobalTeardown']>[0]): ReturnType<TestServerInterface['runGlobalTeardown']> {

@@ -247,6 +247,13 @@ function validateConfig(file: string, config: Config) {
       throw errorWithFile(file, `config.retryStrategy must be one of "immediate" or "isolated"`);
   }
 
+  if ('traceViewer' in config && config.traceViewer !== undefined) {
+    if (!config.traceViewer || typeof config.traceViewer !== 'object')
+      throw errorWithFile(file, `config.traceViewer must be an object`);
+    if (config.traceViewer.bodyFormatter !== undefined && typeof config.traceViewer.bodyFormatter !== 'function')
+      throw errorWithFile(file, `config.traceViewer.bodyFormatter must be a function`);
+  }
+
   if ('tsconfig' in config && config.tsconfig !== undefined) {
     if (typeof config.tsconfig !== 'string')
       throw errorWithFile(file, `config.tsconfig must be a string`);

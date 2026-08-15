@@ -22,6 +22,7 @@ import { TestServerConnection, WebSocketTestServerTransport } from '@testIsomorp
 import { DialogToolbarButton } from '@web/components/dialogToolbarButton';
 import { Dialog } from '@web/shared/dialog';
 import { DefaultSettingsView } from './defaultSettingsView';
+import type { TraceViewerBodyFormatter } from './traceModelContext';
 
 export const WorkbenchLoader: React.FunctionComponent<{
 }> = () => {
@@ -34,6 +35,7 @@ export const WorkbenchLoader: React.FunctionComponent<{
   const [processingErrorMessage, setProcessingErrorMessage] = React.useState<string | null>(null);
   const [fileForLocalModeError, setFileForLocalModeError] = React.useState<string | null>(null);
   const [showProgressDialog, setShowProgressDialog] = React.useState<boolean>(false);
+  const [traceViewerBodyFormatter, setTraceViewerBodyFormatter] = React.useState<TraceViewerBodyFormatter>();
 
   const processTraceFiles = React.useCallback((files: FileList) => {
     const url = new URL(window.location.href);
@@ -108,20 +110,34 @@ export const WorkbenchLoader: React.FunctionComponent<{
       return;
     }
 
-    if (params.has('isServer')) {
-      const guid = new URLSearchParams(window.location.search).get('ws');
+    if (url && !url.startsWith('blob:'))
+      setTraceURL(url);
+
+    const guid = params.get('ws');
+    if (guid) {
       const wsURL = new URL(`../${guid}`, window.location.toString());
       wsURL.protocol = (window.location.protocol === 'https:' ? 'wss:' : 'ws:');
       const testServerConnection = new TestServerConnection(new WebSocketTestServerTransport(wsURL));
+      let disposed = false;
       testServerConnection.onLoadTraceRequested(async params => {
         setTraceURL(params.traceUrl);
         setDragOver(false);
         setProcessingErrorMessage(null);
       });
-      testServerConnection.initialize({}).catch(() => {});
-    } else if (url && !url.startsWith('blob:')) {
-      // Don't re-use blob file URLs on page load (results in Fetch error)
-      setTraceURL(url);
+      (async () => {
+        await testServerConnection.initialize({});
+        const { hasBodyFormatter } = await testServerConnection.traceViewerInfo({});
+        if (hasBodyFormatter && !disposed) {
+          const formatter: TraceViewerBodyFormatter = async params => {
+            return (await testServerConnection.formatTraceViewerBody(params)).text;
+          };
+          setTraceViewerBodyFormatter(() => formatter);
+        }
+      })().catch(() => {});
+      return () => {
+        disposed = true;
+        testServerConnection.close();
+      };
     }
   }, []);
 
@@ -203,7 +219,7 @@ export const WorkbenchLoader: React.FunctionComponent<{
         <DefaultSettingsView location='trace-viewer' />
       </DialogToolbarButton>
     </div>
-    <Workbench model={model} inert={showFileUploadDropArea} />
+    <Workbench model={model} inert={showFileUploadDropArea} traceViewerBodyFormatter={traceViewerBodyFormatter} />
     {fileForLocalModeError && <div className='drop-target'>
       <div>Trace Viewer uses Service Workers to show traces. To view trace:</div>
       <div style={{ paddingTop: 20 }}>

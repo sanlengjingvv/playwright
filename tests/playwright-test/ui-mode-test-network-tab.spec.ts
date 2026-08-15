@@ -283,6 +283,105 @@ test('should pretty-print response bodies and show formatting errors', async ({ 
   await expect(prettyPrintError).toBeVisible();
 });
 
+test('should customize pretty-printing with the project body formatter', async ({ runUITest, server }) => {
+  server.setRoute('/response-bigint', (_, res) => res.setHeader('Content-Type', 'application/json').end('{"id":9007199254740993}'));
+  server.setRoute('/response-protobuf', (_, res) => res.setHeader('Content-Type', 'application/x-protobuf').end(Buffer.from([0x08, 0x96, 0x01])));
+  server.setRoute('/response-fallback', (_, res) => res.setHeader('Content-Type', 'application/json').end('{"ok":true,"items":[1,2]}'));
+  server.setRoute('/request-protobuf', (_, res) => res.end());
+
+  const { page } = await runUITest({
+    'playwright.config.ts': `
+      import { defineConfig } from '@playwright/test';
+      export default defineConfig({
+        traceViewer: {
+          bodyFormatter: (body, context) => {
+            if (context.url.endsWith('/response-protobuf'))
+              return new Promise<string>(resolve => setTimeout(() => resolve(context.kind + ' protobuf: ' + body.toString('hex')), 750));
+            if (context.contentType === 'application/x-protobuf')
+              return context.kind + ' protobuf: ' + body.toString('hex');
+            if (context.url.endsWith('/response-fallback'))
+              return undefined;
+            return 'custom ' + context.kind + ': ' + body.toString('utf8');
+          },
+        },
+      });
+    `,
+    'network-tab.test.ts': `
+      import { test } from '@playwright/test';
+      test('custom network response formatter', async ({ request }) => {
+        await (await request.get('${server.PREFIX}/response-bigint')).body();
+        await (await request.get('${server.PREFIX}/response-protobuf')).body();
+        await (await request.get('${server.PREFIX}/response-fallback')).body();
+        await (await request.post('${server.PREFIX}/request-protobuf', {
+          data: Buffer.from([0x08, 0x96, 0x01]),
+          headers: { 'content-type': 'application/x-protobuf' },
+        })).body();
+      });
+    `,
+  });
+
+  await page.getByText('custom network response formatter').dblclick();
+  await expect(page.getByTestId('workbench-run-status')).toContainText('Passed');
+  await page.getByRole('tab', { name: 'Network' }).click();
+
+  const networkList = page.getByRole('listbox', { name: 'Network requests' }).getByRole('option');
+  const responsePanel = page.getByRole('tabpanel', { name: 'Response' });
+  await networkList.filter({ hasText: 'response-bigint' }).click();
+  await page.getByRole('tabpanel', { name: 'Network' }).getByRole('tab', { name: 'Response' }).click();
+
+  // The built-in JSON formatter loses precision.
+  await expect(responsePanel.locator('.CodeMirror-code')).toContainText('9007199254740992');
+
+  const customPrettyPrint = responsePanel.getByRole('button', { name: 'Customize pretty print', exact: true });
+  const prettyPrint = responsePanel.getByRole('button', { name: 'Pretty print', exact: true });
+  await prettyPrint.click();
+  await expect(responsePanel.locator('.CodeMirror-code .CodeMirror-line')).toHaveText([
+    '{"id":9007199254740993}',
+  ], { useInnerText: true });
+  await expect(customPrettyPrint).toBeEnabled();
+
+  // Custom formatting is a separate mode and can be selected directly from raw mode.
+  await customPrettyPrint.click();
+  await expect(responsePanel.locator('.CodeMirror-code .CodeMirror-line')).toHaveText([
+    'custom response: {"id":9007199254740993}',
+  ], { useInnerText: true });
+
+  // Turning custom formatting off returns to raw mode.
+  await customPrettyPrint.click();
+  await expect(responsePanel.locator('.CodeMirror-code .CodeMirror-line')).toHaveText([
+    '{"id":9007199254740993}',
+  ], { useInnerText: true });
+  await customPrettyPrint.click();
+
+  await networkList.filter({ hasText: 'response-protobuf' }).click();
+  // Do not show the previous request's custom result while the async formatter is pending.
+  await expect(responsePanel.locator('.CodeMirror-code')).not.toContainText('custom response: {"id":9007199254740993}', { timeout: 250 });
+  await expect(responsePanel.locator('.CodeMirror-code .CodeMirror-line')).toHaveText([
+    'response protobuf: 089601',
+  ], { useInnerText: true });
+
+  // Returning undefined falls back to the built-in formatter.
+  await networkList.filter({ hasText: 'response-fallback' }).click();
+  await expect(responsePanel.locator('.CodeMirror-code .CodeMirror-line')).toHaveText([
+    '{',
+    '  "ok": true,',
+    '  "items": [',
+    '    1,',
+    '    2',
+    '  ]',
+    '}',
+  ], { useInnerText: true });
+  await expect(responsePanel.getByTitle('Custom formatting failed')).toBeHidden();
+
+  await networkList.filter({ hasText: 'request-protobuf' }).click();
+  await page.getByRole('tabpanel', { name: 'Network' }).getByRole('tab', { name: 'Payload' }).click();
+  const payloadPanel = page.getByRole('tabpanel', { name: 'Payload' });
+  await payloadPanel.getByRole('button', { name: 'Customize pretty print', exact: true }).click();
+  await expect(payloadPanel.locator('.CodeMirror-code .CodeMirror-line')).toHaveText([
+    'request protobuf: 089601',
+  ], { useInnerText: true });
+});
+
 test('should display list of query parameters (only if present)', async ({ runUITest, server }) => {
   const { page } = await runUITest({
     'network-tab.test.ts': `

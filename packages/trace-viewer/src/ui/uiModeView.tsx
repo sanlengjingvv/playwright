@@ -37,6 +37,7 @@ import { TestListView } from './uiModeTestListView';
 import { TraceView } from './uiModeTraceView';
 import { SettingsView } from './settingsView';
 import { DefaultSettingsView } from './defaultSettingsView';
+import type { TraceViewerBodyFormatter } from './traceModelContext';
 
 let xtermSize = { cols: 80, rows: 24 };
 const xtermDataSource: XtermDataSource = {
@@ -120,6 +121,7 @@ export const UIModeView: React.FC<{}> = ({
   const [expandAllCount, setExpandAllCount] = React.useState(0);
   const [isDisconnected, setIsDisconnected] = React.useState(false);
   const [hasBrowsers, setHasBrowsers] = React.useState(true);
+  const [hasTraceViewerBodyFormatter, setHasTraceViewerBodyFormatter] = React.useState(false);
   const [testServerConnection, setTestServerConnection] = React.useState<TestServerConnection>();
   const [teleSuiteUpdater, setTeleSuiteUpdater] = React.useState<TeleSuiteUpdater>();
   const [settingsVisible, setSettingsVisible] = React.useState(false);
@@ -134,6 +136,12 @@ export const UIModeView: React.FC<{}> = ({
   const [mergeFiles] = useSetting('mergeFiles', false);
 
   const inputRef = React.useRef<HTMLInputElement>(null);
+
+  const traceViewerBodyFormatter = React.useCallback<TraceViewerBodyFormatter>(async params => {
+    if (!hasTraceViewerBodyFormatter || !testServerConnection)
+      throw new Error('No trace viewer body formatter is configured.');
+    return (await testServerConnection.formatTraceViewerBody(params)).text;
+  }, [hasTraceViewerBodyFormatter, testServerConnection]);
 
   const reloadTests = React.useCallback(() => {
     setTestServerConnection(prevConnection => {
@@ -214,7 +222,8 @@ export const UIModeView: React.FC<{}> = ({
           interceptStdio: true,
           watchTestDirs: true
         });
-        const { status, report } = await testServerConnection.runGlobalSetup({});
+        const { status, report, hasTraceViewerBodyFormatter } = await testServerConnection.runGlobalSetup({});
+        setHasTraceViewerBodyFormatter(hasTraceViewerBodyFormatter);
         teleSuiteUpdater.processGlobalReport(report);
         if (status !== 'passed')
           return;
@@ -481,6 +490,7 @@ export const UIModeView: React.FC<{}> = ({
             item={selectedItem}
             rootDir={testModel?.config?.rootDir}
             revealSource={revealSource}
+            traceViewerBodyFormatter={hasTraceViewerBodyFormatter ? traceViewerBodyFormatter : undefined}
             onOpenExternally={location => testServerConnection?.openNoReply({ location: { file: location.file, line: location.line, column: location.column } })}
           />
         </div>

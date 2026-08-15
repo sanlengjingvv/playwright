@@ -639,6 +639,78 @@ test('should have network request overrides', async ({ page, server, runAndTrace
   await expect(traceViewer.networkRequests).not.toContainText([/continued/]);
 });
 
+test('should use project body formatter with show-trace', async ({ page, context, server, showTraceViewer }, testInfo) => {
+  server.setRoute('/show-trace-bigint', (_, response) => {
+    response.setHeader('Content-Type', 'application/json');
+    response.end('{"id":9007199254740993}');
+  });
+  server.setRoute('/show-trace-fallback', (_, response) => {
+    response.setHeader('Content-Type', 'application/json');
+    response.end('{"nested":{"ok":true}}');
+  });
+  await context.tracing.start({ snapshots: true });
+  await page.goto(server.EMPTY_PAGE);
+  await page.evaluate(url => fetch(url).then(response => response.text()), server.PREFIX + '/show-trace-bigint');
+  await page.evaluate(url => fetch(url).then(response => response.text()), server.PREFIX + '/show-trace-fallback');
+  const recordedTrace = testInfo.outputPath('show-trace-body-formatter.zip');
+  await context.tracing.stop({ path: recordedTrace });
+
+  const configDir = testInfo.outputPath('body-formatter-project');
+  await fs.promises.mkdir(configDir, { recursive: true });
+  await fs.promises.writeFile(path.join(configDir, 'playwright.config.js'), `
+    module.exports = {
+      traceViewer: {
+        bodyFormatter: async (body, context) => context.url.endsWith('/show-trace-fallback') ?
+          undefined : 'custom ' + context.kind + ': ' + body.toString('utf8'),
+      },
+    };
+  `);
+
+  const traceViewer = await showTraceViewer(recordedTrace, { cwd: configDir, cli: 'test' });
+  await traceViewer.showNetworkTab();
+  await traceViewer.networkRequests.filter({ hasText: 'show-trace-bigint' }).click();
+  await traceViewer.networkTab.getByRole('tab', { name: 'Response' }).click();
+  const responsePanel = traceViewer.page.getByRole('tabpanel', { name: 'Response' });
+  await expect(responsePanel.locator('.CodeMirror-code')).toContainText('9007199254740992');
+  await responsePanel.getByRole('button', { name: 'Pretty print', exact: true }).click();
+  await expect(responsePanel.locator('.CodeMirror-code')).toContainText('9007199254740993');
+  await expect(responsePanel.getByRole('button', { name: 'Customize pretty print', exact: true })).toBeEnabled();
+  await responsePanel.getByRole('button', { name: 'Customize pretty print', exact: true }).click();
+  await expect(responsePanel.locator('.CodeMirror-code .CodeMirror-line')).toHaveText([
+    'custom response: {"id":9007199254740993}',
+  ], { useInnerText: true });
+
+  // A promise resolving to undefined delegates to the built-in formatter.
+  await traceViewer.networkRequests.filter({ hasText: 'show-trace-fallback' }).click();
+  await expect(responsePanel.locator('.CodeMirror-code .CodeMirror-line')).toHaveText([
+    '{',
+    '  "nested": {',
+    '    "ok": true',
+    '  }',
+    '}',
+  ], { useInnerText: true });
+});
+
+test('should still open a trace when a discovered config fails to load', async ({ page, context, server, showTraceViewer }, testInfo) => {
+  await context.tracing.start({ snapshots: true });
+  await page.goto(server.EMPTY_PAGE);
+  const recordedTrace = testInfo.outputPath('broken-config.zip');
+  await context.tracing.stop({ path: recordedTrace });
+
+  // The config is merely discovered from the working directory, so a broken one - or one belonging
+  // to an unrelated project - must not stop show-trace from opening the trace.
+  const configDir = testInfo.outputPath('broken-config-project');
+  await fs.promises.mkdir(configDir, { recursive: true });
+  await fs.promises.writeFile(path.join(configDir, 'playwright.config.js'),
+      `throw new Error('this config is broken on purpose');`);
+
+  const traceViewer = await showTraceViewer(recordedTrace, { cwd: configDir, cli: 'test' });
+  await expect(traceViewer.actionTitles).toContainText([/Navigate/]);
+  // No formatter could be loaded, so the toggle is absent rather than broken.
+  await traceViewer.showNetworkTab();
+  await expect(traceViewer.page.getByRole('button', { name: 'Customize pretty print', exact: true })).toHaveCount(0);
+});
+
 test('should show canceled status for requests canceled by navigation', async ({ page, server, runAndTrace }) => {
   server.setRoute('/slow', (_req, _res) => {
     // Never respond so the request stays in-flight until navigation cancels it.
