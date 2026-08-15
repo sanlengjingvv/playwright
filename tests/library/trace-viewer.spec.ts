@@ -2630,3 +2630,32 @@ test('take trace paths via stdin', async ({ showTraceViewer }) => {
     /Create page/,
   ]);
 });
+
+test('should format bodies with user-supplied formatters from the config', async ({ context, page, server, showTraceViewer }, testInfo) => {
+  // The built-in formatter would round this id to 12345678901234567000 via JSON.parse.
+  server.setRoute('/response-json', (_, res) => res.setHeader('Content-Type', 'application/json').end('{"id":12345678901234567890}'));
+
+  const projectDir = testInfo.outputPath('formatters-project');
+  fs.mkdirSync(projectDir, { recursive: true });
+  fs.writeFileSync(path.join(projectDir, 'playwright.config.js'),
+      `module.exports = { traceViewer: { bodyFormatters: './trace-formatters.js' } };`);
+  fs.writeFileSync(path.join(projectDir, 'trace-formatters.js'),
+      `export default { 'application/json': body => 'CUSTOM:' + body };`);
+
+  await context.tracing.start({ snapshots: true });
+  await page.goto(server.EMPTY_PAGE);
+  await page.evaluate(url => fetch(url).then(r => r.text()), server.PREFIX + '/response-json');
+  const tracePath = path.join(projectDir, 'trace.zip');
+  await context.tracing.stop({ path: tracePath });
+
+  const traceViewer = await showTraceViewer(tracePath, { config: path.join(projectDir, 'playwright.config.js') });
+  const viewerPage = traceViewer.page;
+
+  await viewerPage.getByText('Network', { exact: true }).click();
+  await viewerPage.getByRole('listbox', { name: 'Network requests' }).getByRole('option')
+      .filter({ hasText: 'response-json' }).click();
+  await viewerPage.getByRole('tabpanel', { name: 'Network' }).getByRole('tab', { name: 'Response' }).click();
+
+  await expect(viewerPage.getByRole('tabpanel', { name: 'Response' }).locator('.CodeMirror-code .CodeMirror-line'))
+      .toHaveText(['CUSTOM:{"id":12345678901234567890}'], { useInnerText: true });
+});

@@ -59,13 +59,14 @@ class TestServer {
     this._configCLIOverrides = configCLIOverrides;
   }
 
-  async start(options: { host?: string, port?: number }): Promise<HttpServer> {
+  async start(options: { host?: string, port?: number, bodyFormattersEntry?: string }): Promise<HttpServer> {
     this._dispatcher = new TestServerDispatcher(this._configLocation, this._configCLIOverrides);
     return await coreServer.startTraceViewerServer({
       host: options.host,
       port: options.port,
       allowedFileRoots: () => this._allowedFileRoots(),
       transport: this._dispatcher.transport,
+      bodyFormattersEntry: options.bodyFormattersEntry,
     });
   }
 
@@ -279,8 +280,9 @@ export class TestServerDispatcher implements TestServerInterface {
 
 export async function runUIMode(configFile: string | undefined, configCLIOverrides: ipc.ConfigCLIOverrides, options: TraceViewerServerOptions & TraceViewerRedirectOptions): Promise<reporterTypes.FullResult['status']> {
   const configLocation = configLoader.resolveConfigLocation(configFile);
-  return await innerRunTestServer(configLocation, configCLIOverrides, options, async (server: HttpServer, cancelPromise: ManualPromise<void>) => {
-    await coreServer.installRootRedirect(server, undefined, { ...options, webApp: 'uiMode.html' });
+  const bodyFormattersEntry = await traceViewerBodyFormattersEntry(configLocation, configCLIOverrides);
+  return await innerRunTestServer(configLocation, configCLIOverrides, { ...options, bodyFormattersEntry }, async (server: HttpServer, cancelPromise: ManualPromise<void>) => {
+    await coreServer.installRootRedirect(server, undefined, { ...options, bodyFormattersEntry, webApp: 'uiMode.html' });
     if (options.host !== undefined || options.port !== undefined) {
       await coreServer.openTraceInBrowser(server.urlPrefix('human-readable'));
     } else {
@@ -295,6 +297,11 @@ export async function runUIMode(configFile: string | undefined, configCLIOverrid
       page.on('close', () => cancelPromise.resolve());
     }
   });
+}
+
+export async function traceViewerBodyFormattersEntry(configLocation: ConfigLocation, configCLIOverrides: ipc.ConfigCLIOverrides): Promise<string | undefined> {
+  const config = await configLoader.loadConfig(configLocation, configCLIOverrides).catch(() => null);
+  return config?.traceViewerBodyFormatters;
 }
 
 // Pick first channel that is used by one of the projects, to ensure it is installed on the machine.
@@ -319,7 +326,7 @@ export async function runTestServer(configFile: string | undefined, configCLIOve
   });
 }
 
-async function innerRunTestServer(configLocation: ConfigLocation, configCLIOverrides: ipc.ConfigCLIOverrides, options: { host?: string, port?: number }, openUI: (server: HttpServer, cancelPromise: ManualPromise<void>) => Promise<void>): Promise<reporterTypes.FullResult['status']> {
+async function innerRunTestServer(configLocation: ConfigLocation, configCLIOverrides: ipc.ConfigCLIOverrides, options: { host?: string, port?: number, bodyFormattersEntry?: string }, openUI: (server: HttpServer, cancelPromise: ManualPromise<void>) => Promise<void>): Promise<reporterTypes.FullResult['status']> {
   const testServer = new TestServer(configLocation, configCLIOverrides);
   const cancelPromise = new ManualPromise<void>();
   const sigintWatcher = new SigIntWatcher();

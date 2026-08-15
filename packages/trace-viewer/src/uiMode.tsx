@@ -19,6 +19,7 @@ import { applyTheme } from '@web/theme';
 import '@web/third_party/vscode/codicon.css';
 import * as ReactDOM from 'react-dom/client';
 import { UIModeView } from './ui/uiModeView';
+import { BodyFormattersContext, loadBodyFormattersFromQuery } from './ui/bodyFormatters';
 
 (async () => {
   applyTheme();
@@ -36,5 +37,7 @@ import { UIModeView } from './ui/uiModeView';
     setInterval(function() { fetch('ping'); }, 10000);
   }
 
-  ReactDOM.createRoot(document.querySelector('#root')!).render(<UIModeView/>);
+  const bodyFormatters = await loadBodyFormattersFromQuery();
+  ReactDOM.createRoot(document.querySelector('#root')!).render(
+      <BodyFormattersContext.Provider value={bodyFormatters}><UIModeView/></BodyFormattersContext.Provider>);
 })();

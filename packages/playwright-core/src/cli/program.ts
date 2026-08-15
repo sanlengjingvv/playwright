@@ -34,7 +34,13 @@ import { decorateMCPCommand } from '../tools/mcp/program';
 import type { TraceViewerServerOptions } from '../server/trace/viewer/traceViewer';
 import type { Command } from 'commander';
 
-export function decorateProgram(program: Command) {
+// Lets the test package contribute config-derived trace viewer options without playwright-core
+// importing it, which the DEPS boundary forbids.
+export type ProgramHooks = {
+  resolveTraceViewerConfig?: (configFile: string | undefined) => Promise<{ bodyFormattersEntry?: string }>;
+};
+
+export function decorateProgram(program: Command, hooks: ProgramHooks = {}) {
 
   program
       .version('Version ' + (process.env.PW_CLI_DISPLAY_VERSION || packageJSON.version))
@@ -210,6 +216,7 @@ export function decorateProgram(program: Command) {
       .option('-h, --host <host>', 'Host to serve trace on; specifying this option opens trace in a browser tab')
       .option('-p, --port <port>', 'Port to serve trace on, 0 for any free port; specifying this option opens trace in a browser tab')
       .option('--stdin', 'Accept trace URLs over stdin to update the viewer')
+      .option('-c, --config <file>', 'Playwright configuration file to read trace viewer options from')
       .description('show trace viewer')
       .action(async function(trace, options) {
         if (options.browser === 'cr')
@@ -219,10 +226,14 @@ export function decorateProgram(program: Command) {
         if (options.browser === 'wk')
           options.browser = 'webkit';
 
+        // Only available when running through the playwright package, which supplies the hook.
+        const traceViewerConfig = await hooks.resolveTraceViewerConfig?.(options.config).catch(() => undefined);
+
         const openOptions: TraceViewerServerOptions = {
           host: options.host,
           port: +options.port,
           isServer: !!options.stdin,
+          bodyFormattersEntry: traceViewerConfig?.bodyFormattersEntry,
         };
 
         if (options.port !== undefined || options.host !== undefined)

@@ -283,6 +283,86 @@ test('should pretty-print response bodies and show formatting errors', async ({ 
   await expect(prettyPrintError).toBeVisible();
 });
 
+test('should format bodies with user-supplied formatters', async ({ runUITest, server }) => {
+  // The JSON.parse round-trip in the built-in formatter would round this id to 12345678901234567000.
+  server.setRoute('/response-json', (_, res) => res.setHeader('Content-Type', 'application/json').end('{"id":12345678901234567890}'));
+  server.setRoute('/response-csv', (_, res) => res.setHeader('Content-Type', 'text/csv; charset=utf-8').end('a,b\n1,2'));
+  server.setRoute('/response-passthrough', (_, res) => res.setHeader('Content-Type', 'application/xml').end('<a><b>1</b></a>'));
+  server.setRoute('/response-throws', (_, res) => res.setHeader('Content-Type', 'application/vnd.boom').end('boom-body'));
+  server.setRoute('/response-wrong', (_, res) => res.setHeader('Content-Type', 'application/vnd.wrong').end('wrong-body'));
+
+  const { page } = await runUITest({
+    'playwright.config.ts': `
+      module.exports = {
+        use: { trace: 'on' },
+        traceViewer: { bodyFormatters: './trace-formatters.js' },
+      };
+    `,
+    // Relative import proves the /bodyFormatters route serves the whole module graph.
+    'helpers.js': `
+      export function tag(text) { return 'tagged:' + text; }
+    `,
+    'trace-formatters.js': `
+      import { tag } from './helpers.js';
+      export default {
+        // Reindents without JSON.parse, so the big integer survives.
+        'application/json': body => body.replace(/([{,])/g, '$1\\n  ').replace(/}$/, '\\n}'),
+        'text/csv': body => tag(body.split('\\n').join(' | ')),
+        // Opts out, so the built-in XML formatting applies.
+        'application/xml': () => undefined,
+        'application/vnd.boom': () => { throw new Error('nope'); },
+        'application/vnd.wrong': () => 42,
+      };
+    `,
+    'network-tab.test.ts': `
+      import { test } from '@playwright/test';
+      test('network tab test', async ({ request }) => {
+        for (const path of ['/response-json', '/response-csv', '/response-passthrough', '/response-throws', '/response-wrong'])
+          await request.get('${server.PREFIX}' + path).then(r => r.text());
+      });
+    `,
+  });
+
+  await page.getByText('network tab test').dblclick();
+  await expect(page.getByTestId('workbench-run-status')).toContainText('Passed');
+  await page.getByRole('tab', { name: 'Network' }).click();
+
+  const networkList = page.getByRole('listbox', { name: 'Network requests' }).getByRole('option');
+  const responsePanel = page.getByRole('tabpanel', { name: 'Response' });
+  const responseLines = responsePanel.locator('.CodeMirror-code .CodeMirror-line');
+
+  // Custom JSON formatter runs, and the big integer is preserved because it never went through JSON.parse.
+  await networkList.filter({ hasText: 'response-json' }).click();
+  await page.getByRole('tabpanel', { name: 'Network' }).getByRole('tab', { name: 'Response' }).click();
+  await expect(responseLines).toHaveText([
+    '{',
+    '  "id":12345678901234567890',
+    '}',
+  ], { useInnerText: true });
+
+  // A mime type with no built-in support, matched after stripping "; charset=utf-8".
+  await networkList.filter({ hasText: 'response-csv' }).click();
+  await expect(responseLines).toHaveText(['tagged:a,b | 1,2'], { useInnerText: true });
+
+  // Returning undefined falls through to the built-in XML formatting.
+  await networkList.filter({ hasText: 'response-passthrough' }).click();
+  await expect(responseLines).toHaveText([
+    '<a>',
+    '    <b>1</b>',
+    '</a>',
+  ], { useInnerText: true });
+
+  // A throwing formatter falls back to the raw body and reports the failure.
+  await networkList.filter({ hasText: 'response-throws' }).click();
+  await expect(responseLines).toHaveText(['boom-body'], { useInnerText: true });
+  await expect(responsePanel.getByTitle('Formatting failed')).toBeVisible();
+
+  // Same for a formatter that returns something other than a string.
+  await networkList.filter({ hasText: 'response-wrong' }).click();
+  await expect(responseLines).toHaveText(['wrong-body'], { useInnerText: true });
+  await expect(responsePanel.getByTitle('Formatting failed')).toBeVisible();
+});
+
 test('should display list of query parameters (only if present)', async ({ runUITest, server }) => {
   const { page } = await runUITest({
     'network-tab.test.ts': `

@@ -45,6 +45,8 @@ export type TraceViewerServerOptions = {
   port?: number;
   isServer?: boolean;
   transport?: Transport;
+  // Absolute path to the user's body formatters module, see traceViewer.bodyFormatters config option.
+  bodyFormattersEntry?: string;
 };
 
 export type TraceViewerRedirectOptions = {
@@ -55,6 +57,7 @@ export type TraceViewerRedirectOptions = {
   reporter?: string[];
   webApp?: string;
   isServer?: boolean;
+  bodyFormattersEntry?: string;
 };
 
 export type TraceViewerAppOptions = {
@@ -63,6 +66,7 @@ export type TraceViewerAppOptions = {
 };
 
 const tracesDirMarker = 'traces.dir';
+const kBodyFormattersPrefix = '/bodyFormatters';
 
 function validateTraceUrlOrPath(traceFileOrUrl: string | undefined): string | undefined {
   if (!traceFileOrUrl)
@@ -123,6 +127,29 @@ export async function startTraceViewerServer(options: TraceViewerServerOptions &
     return true;
   };
 
+  // Serves the user's body formatters module and everything it imports. This lives under /trace so
+  // that it stays inside the service worker scope: the worker controls the viewer page, so every
+  // fetch it makes goes through the worker, and out-of-scope URLs are treated as snapshot
+  // sub-resources rather than passed through to us. Being path-shaped (unlike the query-based
+  // /trace/file route) also lets relative specifiers inside the module resolve to sibling URLs.
+  const serveBodyFormattersRoute = (request: http.IncomingMessage, response: http.ServerResponse, relativePath: string): boolean => {
+    if (!options.bodyFormattersEntry)
+      return false;
+    const formattersRoot = path.dirname(path.resolve(options.bodyFormattersEntry));
+    const subPath = relativePath.substring(kBodyFormattersPrefix.length + 1);
+    const absolutePath = path.resolve(path.join(formattersRoot, ...subPath.split('/')));
+    if (!['.js', '.mjs'].includes(path.extname(absolutePath)) || !isPathInside(formattersRoot, absolutePath)) {
+      response.statusCode = 403;
+      response.end();
+      return true;
+    }
+    if (server.serveFile(request, response, absolutePath, undefined, { skipRootCheck: true }))
+      return true;
+    response.statusCode = 404;
+    response.end();
+    return true;
+  };
+
   // HMR: watch builds serve the trace viewer (incl. UI mode) through an
   // embedded Vite dev server. Release builds always take the static branch
   // (the dev-server arm is DCE'd). Set PW_HMR_STATIC=1 during watch to
@@ -136,6 +163,8 @@ export async function startTraceViewerServer(options: TraceViewerServerOptions &
       const relativePath = url.pathname.slice('/trace'.length);
       if (relativePath.startsWith('/file'))
         return serveTraceDataRoute(request, response, relativePath);
+      if (relativePath.startsWith(kBodyFormattersPrefix + '/'))
+        return serveBodyFormattersRoute(request, response, relativePath);
       if (relativePath === '/sw.bundle.js')
         return server.serveFile(request, response, path.join(libPath('vite', 'traceViewer'), 'sw.bundle.js'));
       devServer.middlewares(request, response, HttpServer.notFoundFallback(response));
@@ -147,6 +176,8 @@ export async function startTraceViewerServer(options: TraceViewerServerOptions &
       const relativePath = url.pathname.slice('/trace'.length);
       if (relativePath.startsWith('/file'))
         return serveTraceDataRoute(request, response, relativePath);
+      if (relativePath.startsWith(kBodyFormattersPrefix + '/'))
+        return serveBodyFormattersRoute(request, response, relativePath);
       const absolutePath = path.join(libPath('vite', 'traceViewer'), ...relativePath.split('/'));
       return server.serveFile(request, response, absolutePath);
     });
@@ -183,6 +214,10 @@ export async function installRootRedirect(server: HttpServer, traceUrl: string |
     params.append('project', project);
   for (const reporter of options.reporter || [])
     params.append('reporter', reporter);
+  // Relative to the viewer page, which lives under /trace, so that a viewer hosted on a sub-path
+  // still resolves it correctly.
+  if (options.bodyFormattersEntry)
+    params.append('bodyFormatters', `.${kBodyFormattersPrefix}/${path.basename(options.bodyFormattersEntry)}`);
 
   const urlPath  = `./trace/${options.webApp || 'index.html'}?${params.toString()}`;
   server.routePath('/', (_, response) => {

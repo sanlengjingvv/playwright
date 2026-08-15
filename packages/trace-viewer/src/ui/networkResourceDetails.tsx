@@ -34,6 +34,8 @@ import { ListView } from '@web/components/listView';
 import { SplitView } from '@web/components/splitView';
 import { Toolbar } from '@web/components/toolbar';
 import { PlaceholderPanel } from './placeholderPanel';
+import { lookupBodyFormatter, useBodyFormatters } from './bodyFormatters';
+import type { BodyFormatters } from './bodyFormatters';
 
 type RequestBody = { text: string, mimeType?: string } | null;
 type ResponseBody = { dataUrl?: string, text?: string, mimeType?: string, font?: BufferSource } | null;
@@ -511,9 +513,17 @@ function formatXml(xml: string, indent = '  ') {
   return lines.join('\n');
 }
 
-function formatBody(body: string, contentType?: string): string {
+function formatBody(body: string, contentType: string | undefined, formatters: BodyFormatters | undefined): string {
   if (!body.trim() || !contentType)
     return body;
+
+  // A user-supplied formatter wins, unless it opts out by returning undefined. Anything other than
+  // a string is a bug in the formatter, so surface it the same way a throwing formatter is surfaced.
+  const custom = lookupBodyFormatter(formatters, contentType)?.(body, contentType);
+  if (typeof custom === 'string')
+    return custom;
+  if (custom !== undefined)
+    throw new Error(`Body formatter for "${contentType}" returned ${typeof custom}, expected a string.`);
 
   if (isJsonMimeType(contentType))
     return JSON.stringify(JSON.parse(body), null, 2);
@@ -528,6 +538,7 @@ function formatBody(body: string, contentType?: string): string {
 }
 
 const useFormattedBody = (body: FormattableBody, showFormatted: boolean) => {
+  const formatters = useBodyFormatters();
   return React.useMemo(() => {
     if (body?.text === undefined)
       return { text: '' };
@@ -536,11 +547,11 @@ const useFormattedBody = (body: FormattableBody, showFormatted: boolean) => {
       return { text: body.text };
 
     try {
-      return { text: formatBody(body.text, body.mimeType) };
+      return { text: formatBody(body.text, body.mimeType, formatters) };
     } catch {
       return { text: body.text, error: true };
     }
-  }, [body, showFormatted]);
+  }, [body, showFormatted, formatters]);
 };
 
 function base64ByteLength(data: string): number {

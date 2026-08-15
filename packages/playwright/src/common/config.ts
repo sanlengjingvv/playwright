@@ -47,6 +47,7 @@ export class FullConfigInternal {
   readonly plugins: TestRunnerPluginRegistration[];
   readonly projects: FullProjectInternal[] = [];
   readonly singleTSConfigPath?: string;
+  readonly traceViewerBodyFormatters?: string;
   readonly captureGitInfo: Config['captureGitInfo'];
   readonly retryStrategy: 'immediate' | 'isolated';
   defineConfigWasUsed = false;
@@ -67,6 +68,7 @@ export class FullConfigInternal {
     const privateConfiguration = (userConfig as any)['@playwright/test'];
     this.plugins = (privateConfiguration?.plugins || []).map((p: any) => ({ factory: p }));
     this.singleTSConfigPath = pathResolve(configDir, userConfig.tsconfig);
+    this.traceViewerBodyFormatters = pathResolve(configDir, userConfig.traceViewer?.bodyFormatters);
     this.captureGitInfo = userConfig.captureGitInfo;
     this.retryStrategy = takeFirst(userConfig.retryStrategy, 'immediate');
 

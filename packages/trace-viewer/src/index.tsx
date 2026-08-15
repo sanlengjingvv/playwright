@@ -20,6 +20,7 @@ import '@web/third_party/vscode/codicon.css';
 import * as ReactDOM from 'react-dom/client';
 import { WorkbenchLoader } from './ui/workbenchLoader';
 import { LiveWorkbenchLoader } from './ui/liveWorkbenchLoader';
+import { BodyFormattersContext, loadBodyFormattersFromQuery } from './ui/bodyFormatters';
 
 (async () => {
   const queryParams = new URLSearchParams(window.location.search);
@@ -39,8 +40,11 @@ import { LiveWorkbenchLoader } from './ui/liveWorkbenchLoader';
     setInterval(function() { fetch('ping'); }, 10000);
   }
 
+  const bodyFormatters = await loadBodyFormattersFromQuery();
+
   const trace = queryParams.get('trace');
   const traceIsLive = trace?.endsWith('.json');
   const workbench = traceIsLive ? <LiveWorkbenchLoader traceJson={trace!} /> : <WorkbenchLoader/>;
-  ReactDOM.createRoot(document.querySelector('#root')!).render(workbench);
+  ReactDOM.createRoot(document.querySelector('#root')!).render(
+      <BodyFormattersContext.Provider value={bodyFormatters}>{workbench}</BodyFormattersContext.Provider>);
 })();

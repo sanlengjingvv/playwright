@@ -35,7 +35,14 @@ import type { TraceMode } from '../types/test';
 import type { Command } from 'commander';
 
 setBoxedStackPrefixes([packageRoot]);
-libCli.decorateProgram(program);
+libCli.decorateProgram(program, {
+  // playwright-core owns `show-trace` but cannot load the config, so supply the bits it needs.
+  resolveTraceViewerConfig: async (configFile: string | undefined) => {
+    const configLocation = configLoader.resolveConfigLocation(configFile);
+    const config = await configLoader.loadConfig(configLocation).catch(() => null);
+    return { bodyFormattersEntry: config?.traceViewerBodyFormatters };
+  },
+});
 
 function addTestCommand(program: Command) {
   const command = program.command('test [test-filter...]');

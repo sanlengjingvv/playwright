@@ -1946,6 +1946,55 @@ interface TestConfig<TestArgs = {}, WorkerArgs = {}> {
   timeout?: number;
 
   /**
+   * Options for the [Trace Viewer](https://playwright.dev/docs/trace-viewer).
+   *
+   * **Usage**
+   *
+   * ```js
+   * // playwright.config.ts
+   * import { defineConfig } from '@playwright/test';
+   *
+   * export default defineConfig({
+   *   traceViewer: {
+   *     bodyFormatters: './trace-formatters.js',
+   *   },
+   * });
+   * ```
+   *
+   * **Details**
+   *
+   * `bodyFormatters` points at a plain JavaScript module in your project, resolved relative to the configuration file.
+   * Its default export maps a mime type to a function that receives the raw body and returns the text to display in the
+   * **Payload** and **Response** tabs of the network panel.
+   *
+   * ```js
+   * // trace-formatters.js
+   * export default {
+   *   'application/json': body => body.replace(/,/g, ',\n'),
+   *   'text/csv': body => body.split('\n').join('\n\n'),
+   * };
+   * ```
+   *
+   * A formatter receives `(body, contentType)`. Return `undefined` to fall back to Playwright's built-in formatting for
+   * that mime type. If a formatter throws, the raw body is shown instead and the **Pretty print** button reports a
+   * formatting error.
+   *
+   * Mime types are matched after stripping parameters such as `; charset=utf-8`. The exact type is tried first, then
+   * `type/*`, then `*\/*`.
+   *
+   * Formatters are loaded from your project by `npx playwright show-trace` and by UI mode. They are not embedded into
+   * the trace file, so opening a trace recorded by someone else never runs their formatters. Traces opened in the
+   * standalone [trace.playwright.dev](https://trace.playwright.dev) viewer or from an HTML report use the built-in
+   * formatting.
+   */
+  traceViewer?: {
+    /**
+     * Path to a JavaScript module that default-exports a map from mime type to formatter function.
+     */
+    bodyFormatters?: string;
+  };
+
+  /**
    * Path to a single `tsconfig` applicable to all imported files. By default, `tsconfig` for each imported file is
    * looked up separately. Note that `tsconfig` property has no effect while the configuration file or any of its
    * dependencies are loaded. Ignored when `--tsconfig` command line option is specified.
