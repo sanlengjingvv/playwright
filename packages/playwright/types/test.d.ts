@@ -853,7 +853,7 @@ export type TraceViewerBodyFormatter = (body: Buffer, context: {
   url: string;
   method: string;
   kind: 'request' | 'response';
-}) => string | Promise<string>;
+}) => string | undefined | Promise<string | undefined>;
 
 export type TraceViewerConfig = {
   bodyFormatter?: TraceViewerBodyFormatter;
@@ -1058,8 +1058,9 @@ interface TestConfig<TestArgs = {}, WorkerArgs = {}> {
   webServer?: TestConfigWebServer | TestConfigWebServer[];
   /**
    * Configures project-specific trace viewer behavior. `bodyFormatter` receives the exact body bytes as a [Buffer] and
-   * a context object with `contentType`, `url`, `method`, and `kind` (`'request'` or `'response'`). It must return a
-   * string, or a promise resolving to a string.
+   * a context object with `contentType`, `url`, `method`, and `kind` (`'request'` or `'response'`). Return a string (or
+   * a promise resolving to one) to customize the display. Return `undefined` (or a promise resolving to `undefined`) to
+   * use Playwright's built-in pretty printer.
    *
    * The formatter runs in the Playwright process. It is available in UI mode and when opening a trace from the project
    * with `npx playwright show-trace`. Use `--config` when the configuration file is not discoverable from the current
@@ -1078,7 +1079,7 @@ interface TestConfig<TestArgs = {}, WorkerArgs = {}> {
    *     bodyFormatter: (body, context) => {
    *       if (context.contentType === 'application/x-protobuf')
    *         return JSON.stringify(MyMessage.decode(body), null, 2);
-   *       return body.toString('utf8');
+   *       return undefined;
    *     },
    *   },
    * });

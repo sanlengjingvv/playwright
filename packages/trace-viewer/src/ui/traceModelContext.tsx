@@ -25,7 +25,7 @@ export type TraceViewerBodyFormatter = (params: {
   url: string,
   method: string,
   kind: 'request' | 'response',
-}) => Promise<string>;
+}) => Promise<string | undefined>;
 
 export const TraceViewerBodyFormatterContext = React.createContext<TraceViewerBodyFormatter | undefined>(undefined);
 

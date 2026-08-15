@@ -652,8 +652,9 @@ export default defineConfig({
   - `bodyFormatter` ?<[function]> Function that formats a network request or response body in UI mode and the local trace viewer.
 
 Configures project-specific trace viewer behavior. `bodyFormatter` receives the exact body bytes as a [Buffer] and a
-context object with `contentType`, `url`, `method`, and `kind` (`'request'` or `'response'`). It must return a string, or
-a promise resolving to a string.
+context object with `contentType`, `url`, `method`, and `kind` (`'request'` or `'response'`). Return a string (or a
+promise resolving to one) to customize the display. Return `undefined` (or a promise resolving to `undefined`) to use
+Playwright's built-in pretty printer.
 
 The formatter runs in the Playwright process. It is available in UI mode and when opening a trace from the project with
 `npx playwright show-trace`. Use `--config` when the configuration file is not discoverable from the current working
@@ -670,7 +671,7 @@ export default defineConfig({
     bodyFormatter: (body, context) => {
       if (context.contentType === 'application/x-protobuf')
         return JSON.stringify(MyMessage.decode(body), null, 2);
-      return body.toString('utf8');
+      return undefined;
     },
   },
 });

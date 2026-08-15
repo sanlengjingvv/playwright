@@ -53,7 +53,7 @@ export type TraceViewerBodyFormatter = (body: Buffer, context: {
   url: string;
   method: string;
   kind: 'request' | 'response';
-}) => string | Promise<string>;
+}) => string | undefined | Promise<string | undefined>;
 
 export type TraceViewerRedirectOptions = {
   args?: string[];
@@ -317,9 +317,9 @@ class TraceViewerTransport implements Transport {
         method: params.method,
         kind: params.kind,
       });
-      if (typeof text !== 'string')
-        throw new Error('config.traceViewer.bodyFormatter must return a string.');
-      return { text };
+      if (text !== undefined && typeof text !== 'string')
+        throw new Error('config.traceViewer.bodyFormatter must return a string or undefined.');
+      return text === undefined ? {} : { text };
     }
   }
 

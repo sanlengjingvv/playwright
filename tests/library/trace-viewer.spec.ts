@@ -644,9 +644,14 @@ test('should use project body formatter with show-trace', async ({ page, context
     response.setHeader('Content-Type', 'application/json');
     response.end('{"id":9007199254740993}');
   });
+  server.setRoute('/show-trace-fallback', (_, response) => {
+    response.setHeader('Content-Type', 'application/json');
+    response.end('{"nested":{"ok":true}}');
+  });
   await context.tracing.start({ snapshots: true });
   await page.goto(server.EMPTY_PAGE);
   await page.evaluate(url => fetch(url).then(response => response.text()), server.PREFIX + '/show-trace-bigint');
+  await page.evaluate(url => fetch(url).then(response => response.text()), server.PREFIX + '/show-trace-fallback');
   const recordedTrace = testInfo.outputPath('show-trace-body-formatter.zip');
   await context.tracing.stop({ path: recordedTrace });
 
@@ -655,7 +660,8 @@ test('should use project body formatter with show-trace', async ({ page, context
   await fs.promises.writeFile(path.join(configDir, 'playwright.config.js'), `
     module.exports = {
       traceViewer: {
-        bodyFormatter: (body, context) => 'custom ' + context.kind + ': ' + body.toString('utf8'),
+        bodyFormatter: async (body, context) => context.url.endsWith('/show-trace-fallback') ?
+          undefined : 'custom ' + context.kind + ': ' + body.toString('utf8'),
       },
     };
   `);
@@ -669,6 +675,16 @@ test('should use project body formatter with show-trace', async ({ page, context
   await responsePanel.getByRole('button', { name: 'Customize pretty print', exact: true }).click();
   await expect(responsePanel.locator('.CodeMirror-code .CodeMirror-line')).toHaveText([
     'custom response: {"id":9007199254740993}',
+  ], { useInnerText: true });
+
+  // A promise resolving to undefined delegates to the built-in formatter.
+  await traceViewer.networkRequests.filter({ hasText: 'show-trace-fallback' }).click();
+  await expect(responsePanel.locator('.CodeMirror-code .CodeMirror-line')).toHaveText([
+    '{',
+    '  "nested": {',
+    '    "ok": true',
+    '  }',
+    '}',
   ], { useInnerText: true });
 });
 

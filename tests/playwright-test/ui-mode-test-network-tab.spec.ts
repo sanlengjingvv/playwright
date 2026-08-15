@@ -286,6 +286,7 @@ test('should pretty-print response bodies and show formatting errors', async ({ 
 test('should customize pretty-printing with the project body formatter', async ({ runUITest, server }) => {
   server.setRoute('/response-bigint', (_, res) => res.setHeader('Content-Type', 'application/json').end('{"id":9007199254740993}'));
   server.setRoute('/response-protobuf', (_, res) => res.setHeader('Content-Type', 'application/x-protobuf').end(Buffer.from([0x08, 0x96, 0x01])));
+  server.setRoute('/response-fallback', (_, res) => res.setHeader('Content-Type', 'application/json').end('{"ok":true,"items":[1,2]}'));
   server.setRoute('/request-protobuf', (_, res) => res.end());
 
   const { page } = await runUITest({
@@ -293,11 +294,13 @@ test('should customize pretty-printing with the project body formatter', async (
       import { defineConfig } from '@playwright/test';
       export default defineConfig({
         traceViewer: {
-          bodyFormatter: async (body, context) => {
+          bodyFormatter: (body, context) => {
             if (context.url.endsWith('/response-protobuf'))
-              await new Promise(resolve => setTimeout(resolve, 750));
+              return new Promise<string>(resolve => setTimeout(() => resolve(context.kind + ' protobuf: ' + body.toString('hex')), 750));
             if (context.contentType === 'application/x-protobuf')
               return context.kind + ' protobuf: ' + body.toString('hex');
+            if (context.url.endsWith('/response-fallback'))
+              return undefined;
             return 'custom ' + context.kind + ': ' + body.toString('utf8');
           },
         },
@@ -308,6 +311,7 @@ test('should customize pretty-printing with the project body formatter', async (
       test('custom network response formatter', async ({ request }) => {
         await (await request.get('${server.PREFIX}/response-bigint')).body();
         await (await request.get('${server.PREFIX}/response-protobuf')).body();
+        await (await request.get('${server.PREFIX}/response-fallback')).body();
         await (await request.post('${server.PREFIX}/request-protobuf', {
           data: Buffer.from([0x08, 0x96, 0x01]),
           headers: { 'content-type': 'application/x-protobuf' },
@@ -349,6 +353,19 @@ test('should customize pretty-printing with the project body formatter', async (
   await expect(responsePanel.locator('.CodeMirror-code .CodeMirror-line')).toHaveText([
     'response protobuf: 089601',
   ], { useInnerText: true });
+
+  // Returning undefined falls back to the built-in formatter.
+  await networkList.filter({ hasText: 'response-fallback' }).click();
+  await expect(responsePanel.locator('.CodeMirror-code .CodeMirror-line')).toHaveText([
+    '{',
+    '  "ok": true,',
+    '  "items": [',
+    '    1,',
+    '    2',
+    '  ]',
+    '}',
+  ], { useInnerText: true });
+  await expect(responsePanel.getByTitle('Custom formatting failed')).toBeHidden();
 
   await networkList.filter({ hasText: 'request-protobuf' }).click();
   await page.getByRole('tabpanel', { name: 'Network' }).getByRole('tab', { name: 'Payload' }).click();

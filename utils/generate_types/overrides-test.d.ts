@@ -70,7 +70,7 @@ export type TraceViewerBodyFormatter = (body: Buffer, context: {
   url: string;
   method: string;
   kind: 'request' | 'response';
-}) => string | Promise<string>;
+}) => string | undefined | Promise<string | undefined>;
 
 export type TraceViewerConfig = {
   bodyFormatter?: TraceViewerBodyFormatter;

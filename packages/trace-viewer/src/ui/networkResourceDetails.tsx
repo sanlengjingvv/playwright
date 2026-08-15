@@ -590,18 +590,16 @@ const useFormattedBody = (
     if (!showFormatted || !showCustomFormatted || !customFormatter || !resource || !kind || body?.bytes === undefined)
       return undefined;
     try {
+      const text = await customFormatter({
+        body: bytesToBase64(body.bytes),
+        contentType: body.mimeType || '',
+        url: resource.request.url,
+        method: resource.request.method,
+        kind,
+      });
       return {
-        result: {
-          // Encoded here rather than when the body is read, so that selecting a request avoids
-          // the base64 conversion until the custom formatter is actually switched on.
-          text: await customFormatter({
-            body: bytesToBase64(body.bytes),
-            contentType: body.mimeType || '',
-            url: resource.request.url,
-            method: resource.request.method,
-            kind,
-          }),
-        },
+        // Returning undefined opts into the existing built-in formatter and its error handling.
+        result: text === undefined ? defaultResult : { text },
         body,
         formatter: customFormatter,
         resource,

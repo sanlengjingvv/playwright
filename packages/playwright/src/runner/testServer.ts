@@ -198,9 +198,9 @@ export class TestServerDispatcher implements TestServerInterface {
       method: params.method,
       kind: params.kind,
     });
-    if (typeof text !== 'string')
-      throw new Error('config.traceViewer.bodyFormatter must return a string.');
-    return { text };
+    if (text !== undefined && typeof text !== 'string')
+      throw new Error('config.traceViewer.bodyFormatter must return a string or undefined.');
+    return text === undefined ? {} : { text };
   }
 
   async runGlobalTeardown() {

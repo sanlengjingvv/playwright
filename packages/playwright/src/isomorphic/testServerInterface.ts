@@ -59,7 +59,7 @@ export interface TestServerInterface {
     url: string,
     method: string,
     kind: 'request' | 'response',
-  }): Promise<{ text: string }>;
+  }): Promise<{ text?: string }>;
 
   runGlobalTeardown(params: {}): Promise<{
     report: ReportEntry[],
