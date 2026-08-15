@@ -672,6 +672,26 @@ test('should use project body formatter with show-trace', async ({ page, context
   ], { useInnerText: true });
 });
 
+test('should still open a trace when a discovered config fails to load', async ({ page, context, server, showTraceViewer }, testInfo) => {
+  await context.tracing.start({ snapshots: true });
+  await page.goto(server.EMPTY_PAGE);
+  const recordedTrace = testInfo.outputPath('broken-config.zip');
+  await context.tracing.stop({ path: recordedTrace });
+
+  // The config is merely discovered from the working directory, so a broken one - or one belonging
+  // to an unrelated project - must not stop show-trace from opening the trace.
+  const configDir = testInfo.outputPath('broken-config-project');
+  await fs.promises.mkdir(configDir, { recursive: true });
+  await fs.promises.writeFile(path.join(configDir, 'playwright.config.js'),
+      `throw new Error('this config is broken on purpose');`);
+
+  const traceViewer = await showTraceViewer(recordedTrace, { cwd: configDir, cli: 'test' });
+  await expect(traceViewer.actionTitles).toContainText([/Navigate/]);
+  // No formatter could be loaded, so the toggle is absent rather than broken.
+  await traceViewer.showNetworkTab();
+  await expect(traceViewer.page.getByRole('button', { name: 'Customize pretty print', exact: true })).toHaveCount(0);
+});
+
 test('should show canceled status for requests canceled by navigation', async ({ page, server, runAndTrace }) => {
   server.setRoute('/slow', (_req, _res) => {
     // Never respond so the request stays in-flight until navigation cancels it.

@@ -36,9 +36,9 @@ import { SplitView } from '@web/components/splitView';
 import { Toolbar } from '@web/components/toolbar';
 import { PlaceholderPanel } from './placeholderPanel';
 
-type RequestBody = { text: string, base64: string, mimeType?: string } | null;
-type ResponseBody = { dataUrl?: string, text?: string, base64?: string, mimeType?: string, font?: BufferSource } | null;
-type FormattableBody = { text?: string, base64?: string, mimeType?: string } | null;
+type RequestBody = { text: string, bytes?: Uint8Array, mimeType?: string } | null;
+type ResponseBody = { dataUrl?: string, text?: string, bytes?: Uint8Array, mimeType?: string, font?: BufferSource } | null;
+type FormattableBody = { text?: string, bytes?: Uint8Array, mimeType?: string } | null;
 type FormattedBodyResult = { text: string, error?: boolean, customError?: boolean };
 type IndexedWebSocketMessage = WebSocketMessage & { index: number, byteLength: number };
 
@@ -60,12 +60,12 @@ export const NetworkResourceDetails: React.FunctionComponent<{
       if (resource.request.postData._file) {
         const response = await fetch(model.createRelativeUrl(`file/${resource.request.postData._file}`));
         if (!customFormatter)
-          return { text: await response.text(), base64: '', mimeType: requestContentType };
+          return { text: await response.text(), mimeType: requestContentType };
         const bytes = new Uint8Array(await response.arrayBuffer());
-        return { text: new TextDecoder().decode(bytes), base64: bytesToBase64(bytes), mimeType: requestContentType };
+        return { text: new TextDecoder().decode(bytes), bytes, mimeType: requestContentType };
       } else {
         const text = resource.request.postData.text;
-        return { text, base64: customFormatter ? bytesToBase64(new TextEncoder().encode(text)) : '', mimeType: requestContentType };
+        return { text, bytes: customFormatter ? new TextEncoder().encode(text) : undefined, mimeType: requestContentType };
       }
     } else {
       return null;
@@ -258,7 +258,7 @@ const ResponseTab: React.FunctionComponent<{
             return;
           }
           const bytes = new Uint8Array(await response.arrayBuffer());
-          setResponseBody({ text: new TextDecoder().decode(bytes), base64: bytesToBase64(bytes), mimeType: resource.response.content.mimeType });
+          setResponseBody({ text: new TextDecoder().decode(bytes), bytes, mimeType: resource.response.content.mimeType });
         }
       } else {
         setResponseBody(null);
@@ -580,12 +580,14 @@ const useFormattedBody = (
   }, [body, showFormatted]);
 
   const customResult = useAsyncMemo<FormattedBodyResult | undefined>(async () => {
-    if (!showFormatted || !showCustomFormatted || !customFormatter || !resource || !kind || body?.base64 === undefined)
+    if (!showFormatted || !showCustomFormatted || !customFormatter || !resource || !kind || body?.bytes === undefined)
       return undefined;
     try {
       return {
+        // Encoded here rather than when the body is read, so that selecting a request costs
+        // nothing until the custom formatter is actually switched on.
         text: await customFormatter({
-          body: body.base64,
+          body: bytesToBase64(body.bytes),
           contentType: body.mimeType || '',
           url: resource.request.url,
           method: resource.request.method,

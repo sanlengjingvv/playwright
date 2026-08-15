@@ -227,8 +227,15 @@ export function decorateProgram(program: Command, decorateOptions: {
         try {
           bodyFormatter = await decorateOptions.loadTraceViewerBodyFormatter?.(commandOptions.config);
         } catch (e) {
-          logErrorAndExit(e as Error);
-          return;
+          // An explicit --config is a request worth failing on. Without it the config is merely
+          // discovered from the working directory, and one that happens to be broken - or that
+          // belongs to an unrelated project - must not stop the trace from opening.
+          if (commandOptions.config) {
+            logErrorAndExit(e as Error);
+            return;
+          }
+          // eslint-disable-next-line no-console
+          console.error(`Failed to load Playwright configuration, continuing without a trace viewer body formatter:\n${(e as Error).message}`);
         }
 
         const openOptions: TraceViewerServerOptions = {
