@@ -28,16 +28,18 @@ import { isJsonMimeType, isXmlMimeType } from '@isomorphic/mimeType';
 import { useAsyncMemo, useSetting } from '@web/uiUtils';
 import { bytesToString, msToString } from '@isomorphic/formatUtils';
 import type { Entry, WebSocketMessage } from '@trace/har';
-import { useTraceModel } from './traceModelContext';
+import { useTraceModel, useTraceViewerBodyFormatter } from './traceModelContext';
+import type { TraceViewerBodyFormatter } from './traceModelContext';
 import { Expandable } from '@web/components/expandable';
 import { ListView } from '@web/components/listView';
 import { SplitView } from '@web/components/splitView';
 import { Toolbar } from '@web/components/toolbar';
 import { PlaceholderPanel } from './placeholderPanel';
 
-type RequestBody = { text: string, mimeType?: string } | null;
-type ResponseBody = { dataUrl?: string, text?: string, mimeType?: string, font?: BufferSource } | null;
-type FormattableBody = { text?: string, mimeType?: string } | null;
+type RequestBody = { text: string, base64: string, mimeType?: string } | null;
+type ResponseBody = { dataUrl?: string, text?: string, base64?: string, mimeType?: string, font?: BufferSource } | null;
+type FormattableBody = { text?: string, base64?: string, mimeType?: string } | null;
+type FormattedBodyResult = { text: string, error?: boolean, customError?: boolean };
 type IndexedWebSocketMessage = WebSocketMessage & { index: number, byteLength: number };
 
 
@@ -49,6 +51,7 @@ export const NetworkResourceDetails: React.FunctionComponent<{
 }> = ({ resource, sdkLanguage, startTimeOffset, onClose }) => {
   const [selectedTab, setSelectedTab] = React.useState('headers');
   const model = useTraceModel();
+  const customFormatter = useTraceViewerBodyFormatter();
 
   const requestBody = useAsyncMemo<RequestBody>(async () => {
     if (model && resource.request.postData) {
@@ -56,14 +59,18 @@ export const NetworkResourceDetails: React.FunctionComponent<{
       const requestContentType = requestContentTypeHeader ? requestContentTypeHeader.value : '';
       if (resource.request.postData._file) {
         const response = await fetch(model.createRelativeUrl(`file/${resource.request.postData._file}`));
-        return { text: await response.text(), mimeType: requestContentType };
+        if (!customFormatter)
+          return { text: await response.text(), base64: '', mimeType: requestContentType };
+        const bytes = new Uint8Array(await response.arrayBuffer());
+        return { text: new TextDecoder().decode(bytes), base64: bytesToBase64(bytes), mimeType: requestContentType };
       } else {
-        return { text: resource.request.postData.text, mimeType: requestContentType };
+        const text = resource.request.postData.text;
+        return { text, base64: customFormatter ? bytesToBase64(new TextEncoder().encode(text)) : '', mimeType: requestContentType };
       }
     } else {
       return null;
     }
-  }, [resource], null);
+  }, [customFormatter, model, resource], null);
 
   return <TabbedPane
     leftToolbar={[<ToolbarButton key='close' icon='close' title='Close' onClick={onClose} />]}
@@ -121,6 +128,18 @@ const FormatToggleButton: React.FC<{
   onToggle: () => void;
 }> = ({ toggled, error, onToggle }) => {
   return <ToolbarButton icon='json' title='Pretty print' toggled={toggled} errorBadge={error ? 'Formatting failed' : undefined} onClick={e => {
+    e.stopPropagation();
+    onToggle();
+  }}/>;
+};
+
+const CustomFormatToggleButton: React.FC<{
+  toggled: boolean;
+  disabled: boolean;
+  error?: boolean;
+  onToggle: () => void;
+}> = ({ toggled, disabled, error, onToggle }) => {
+  return <ToolbarButton icon='symbol-method' title='Customize pretty print' toggled={toggled} disabled={disabled} errorBadge={error ? 'Custom formatting failed' : undefined} onClick={e => {
     e.stopPropagation();
     onToggle();
   }}/>;
@@ -189,10 +208,12 @@ const PayloadTab: React.FunctionComponent<{
   resource: ResourceSnapshot;
   requestBody: RequestBody,
 }> = ({ resource, requestBody }) => {
+  const customFormatter = useTraceViewerBodyFormatter();
   const [showFormatted, setShowFormatted] = useSetting('trace-viewer-network-details-show-formatted-payload', true);
+  const [showCustomFormatted, setShowCustomFormatted] = useSetting('trace-viewer-network-details-show-custom-formatted-payload', false);
   const hasQueryString = resource.request.queryString.length > 0;
   const hasRequestBody = !!(requestBody || resource.request.postData);
-  const formatResult = useFormattedBody(requestBody, showFormatted);
+  const formatResult = useFormattedBody(requestBody, showFormatted, showCustomFormatted, customFormatter, resource, 'request');
 
   return <div className='vbox network-request-details-tab'>
     {!hasQueryString && !hasRequestBody && <em className='network-request-no-payload'>No payload for this request.</em>}
@@ -200,6 +221,7 @@ const PayloadTab: React.FunctionComponent<{
     {requestBody && <ExpandableSection title='Request Body' className='network-request-request-body' titleChildren={
       <>
         <div style={{ margin: 'auto' }}></div>
+        {customFormatter && <CustomFormatToggleButton toggled={showCustomFormatted} disabled={!showFormatted} error={formatResult.customError} onToggle={() => setShowCustomFormatted(!showCustomFormatted)} />}
         <FormatToggleButton toggled={showFormatted} error={formatResult.error} onToggle={() => setShowFormatted(!showFormatted)} />
       </>
     }>
@@ -212,6 +234,7 @@ const ResponseTab: React.FunctionComponent<{
   resource: ResourceSnapshot;
 }> = ({ resource }) => {
   const model = useTraceModel();
+  const customFormatter = useTraceViewerBodyFormatter();
   const [responseBody, setResponseBody] = React.useState<ResponseBody>(null);
 
   React.useEffect(() => {
@@ -230,7 +253,12 @@ const ResponseTab: React.FunctionComponent<{
           const font = await response.arrayBuffer();
           setResponseBody({ font });
         } else {
-          setResponseBody({ text: await response.text(), mimeType: resource.response.content.mimeType });
+          if (!customFormatter) {
+            setResponseBody({ text: await response.text(), mimeType: resource.response.content.mimeType });
+            return;
+          }
+          const bytes = new Uint8Array(await response.arrayBuffer());
+          setResponseBody({ text: new TextDecoder().decode(bytes), base64: bytesToBase64(bytes), mimeType: resource.response.content.mimeType });
         }
       } else {
         setResponseBody(null);
@@ -238,10 +266,11 @@ const ResponseTab: React.FunctionComponent<{
     };
 
     readResources();
-  }, [resource, model]);
+  }, [customFormatter, resource, model]);
 
   const [showFormattedResponse, setShowFormattedResponse] = useSetting('trace-viewer-network-details-show-formatted-response', true);
-  const formatResult = useFormattedBody(responseBody, showFormattedResponse);
+  const [showCustomFormattedResponse, setShowCustomFormattedResponse] = useSetting('trace-viewer-network-details-show-custom-formatted-response', false);
+  const formatResult = useFormattedBody(responseBody, showFormattedResponse, showCustomFormattedResponse, customFormatter, resource, 'response');
 
   return <div className='vbox network-request-details-tab'>
     {!resource.response.content._file && <div>Response body is not available for this request.</div>}
@@ -251,6 +280,7 @@ const ResponseTab: React.FunctionComponent<{
       <CodeMirrorWrapper text={formatResult.text} mimeType={responseBody.mimeType} readOnly lineNumbers={true}/>
       <Toolbar noShadow={true} noMinHeight={true} className='network-response-toolbar'>
         <div style={{ margin: 'auto' }}></div>
+        {customFormatter && <CustomFormatToggleButton toggled={showCustomFormattedResponse} disabled={!showFormattedResponse} error={formatResult.customError} onToggle={() => setShowCustomFormattedResponse(!showCustomFormattedResponse)} />}
         <FormatToggleButton toggled={showFormattedResponse} error={formatResult.error} onToggle={() => setShowFormattedResponse(!showFormattedResponse)} />
       </Toolbar>
     </div>}
@@ -527,8 +557,15 @@ function formatBody(body: string, contentType?: string): string {
   return body;
 }
 
-const useFormattedBody = (body: FormattableBody, showFormatted: boolean) => {
-  return React.useMemo(() => {
+const useFormattedBody = (
+  body: FormattableBody,
+  showFormatted: boolean,
+  showCustomFormatted = false,
+  customFormatter?: TraceViewerBodyFormatter,
+  resource?: ResourceSnapshot,
+  kind?: 'request' | 'response',
+) => {
+  const defaultResult = React.useMemo<FormattedBodyResult>(() => {
     if (body?.text === undefined)
       return { text: '' };
 
@@ -541,7 +578,36 @@ const useFormattedBody = (body: FormattableBody, showFormatted: boolean) => {
       return { text: body.text, error: true };
     }
   }, [body, showFormatted]);
+
+  const customResult = useAsyncMemo<FormattedBodyResult | undefined>(async () => {
+    if (!showFormatted || !showCustomFormatted || !customFormatter || !resource || !kind || body?.base64 === undefined)
+      return undefined;
+    try {
+      return {
+        text: await customFormatter({
+          body: body.base64,
+          contentType: body.mimeType || '',
+          url: resource.request.url,
+          method: resource.request.method,
+          kind,
+        }),
+      };
+    } catch {
+      return { text: defaultResult.text, customError: true };
+    }
+  }, [body, customFormatter, defaultResult.text, kind, resource, showCustomFormatted, showFormatted], undefined);
+
+  if (showFormatted && showCustomFormatted && customFormatter && customResult)
+    return customResult;
+  return defaultResult;
 };
+
+function bytesToBase64(bytes: Uint8Array): string {
+  let binary = '';
+  for (let i = 0; i < bytes.length; i += 0x8000)
+    binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  return btoa(binary);
+}
 
 function base64ByteLength(data: string): number {
   if (!data)

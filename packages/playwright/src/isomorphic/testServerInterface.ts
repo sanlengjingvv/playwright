@@ -32,6 +32,8 @@ export interface TestServerInterface {
 
   ping(params: {}): Promise<void>;
 
+  traceViewerInfo(params: {}): Promise<{ hasBodyFormatter: boolean }>;
+
   watch(params: {
     fileNames: string[];
   }): Promise<void>;
@@ -47,8 +49,17 @@ export interface TestServerInterface {
   runGlobalSetup(params: {}): Promise<{
     report: ReportEntry[],
     env: [string, string | null][],
-    status: reporterTypes.FullResult['status']
+    status: reporterTypes.FullResult['status'],
+    hasTraceViewerBodyFormatter: boolean,
   }>;
+
+  formatTraceViewerBody(params: {
+    body: string,
+    contentType: string,
+    url: string,
+    method: string,
+    kind: 'request' | 'response',
+  }): Promise<{ text: string }>;
 
   runGlobalTeardown(params: {}): Promise<{
     report: ReportEntry[],

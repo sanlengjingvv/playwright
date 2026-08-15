@@ -646,6 +646,36 @@ export default defineConfig({
 });
 ```
 
+## property: TestConfig.traceViewer
+* since: v1.63
+- type: ?<[Object]>
+  - `bodyFormatter` ?<[function]> Function that formats a network request or response body in UI mode and the local trace viewer.
+
+Configures project-specific trace viewer behavior. `bodyFormatter` receives the exact body bytes as a [Buffer] and a
+context object with `contentType`, `url`, `method`, and `kind` (`'request'` or `'response'`). It must return a string, or
+a promise resolving to a string.
+
+The formatter runs in the Playwright process. It is available in UI mode and when opening a trace from the project with
+`npx playwright show-trace`. Use `--config` when the configuration file is not discoverable from the current working
+directory. The formatter is not embedded in trace files, so it is unavailable when uploading the trace elsewhere.
+
+**Usage**
+
+```js title="playwright.config.ts"
+import { defineConfig } from '@playwright/test';
+import { MyMessage } from './generated/messages';
+
+export default defineConfig({
+  traceViewer: {
+    bodyFormatter: (body, context) => {
+      if (context.contentType === 'application/x-protobuf')
+        return JSON.stringify(MyMessage.decode(body), null, 2);
+      return body.toString('utf8');
+    },
+  },
+});
+```
+
 ## property: TestConfig.tsconfig
 * since: v1.49
 - type: ?<[string]>

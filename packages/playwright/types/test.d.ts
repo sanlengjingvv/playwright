@@ -848,6 +848,17 @@ export interface FullProject<TestArgs = {}, WorkerArgs = {}> {
 
 type LiteralUnion<T extends U, U = string> = T | (U & { zz_IGNORE_ME?: never });
 
+export type TraceViewerBodyFormatter = (body: Buffer, context: {
+  contentType: string;
+  url: string;
+  method: string;
+  kind: 'request' | 'response';
+}) => string | Promise<string>;
+
+export type TraceViewerConfig = {
+  bodyFormatter?: TraceViewerBodyFormatter;
+};
+
 /**
  * Playwright Test provides many options to configure how your tests are collected and executed, for example `timeout`
  * or `testDir`. These options are described in the [TestConfig](https://playwright.dev/docs/api/class-testconfig)
@@ -1045,6 +1056,36 @@ interface TestConfig<TestArgs = {}, WorkerArgs = {}> {
    *
    */
   webServer?: TestConfigWebServer | TestConfigWebServer[];
+  /**
+   * Configures project-specific trace viewer behavior. `bodyFormatter` receives the exact body bytes as a [Buffer] and
+   * a context object with `contentType`, `url`, `method`, and `kind` (`'request'` or `'response'`). It must return a
+   * string, or a promise resolving to a string.
+   *
+   * The formatter runs in the Playwright process. It is available in UI mode and when opening a trace from the project
+   * with `npx playwright show-trace`. Use `--config` when the configuration file is not discoverable from the current
+   * working directory. The formatter is not embedded in trace files, so it is unavailable when uploading the trace
+   * elsewhere.
+   *
+   * **Usage**
+   *
+   * ```js
+   * // playwright.config.ts
+   * import { defineConfig } from '@playwright/test';
+   * import { MyMessage } from './generated/messages';
+   *
+   * export default defineConfig({
+   *   traceViewer: {
+   *     bodyFormatter: (body, context) => {
+   *       if (context.contentType === 'application/x-protobuf')
+   *         return JSON.stringify(MyMessage.decode(body), null, 2);
+   *       return body.toString('utf8');
+   *     },
+   *   },
+   * });
+   * ```
+   *
+   */
+  traceViewer?: TraceViewerConfig;
   /**
    * Playwright transpiler configuration.
    *

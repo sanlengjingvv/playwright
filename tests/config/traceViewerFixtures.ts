@@ -31,7 +31,7 @@ type BaseWorkerFixtures = {
 };
 
 export type TraceViewerFixtures = {
-  showTraceViewer: (trace: string | undefined, options?: {host?: string, port?: number, stdin?: boolean, cwd?: string}) => Promise<TraceViewerPage>;
+  showTraceViewer: (trace: string | undefined, options?: {host?: string, port?: number, stdin?: boolean, cwd?: string, cli?: 'core' | 'test', config?: string}) => Promise<TraceViewerPage>;
   runAndTrace: (body: () => Promise<void>, optsOverrides?: Parameters<BrowserContext['tracing']['start']>[0]) => Promise<TraceViewerPage>;
 };
 
@@ -155,13 +155,15 @@ export const traceViewerFixtures: Fixtures<TraceViewerFixtures, {}, BaseTestFixt
   showTraceViewer: async ({ playwright, childProcess, browserName }, use, testInfo) => {
     const browsers: Browser[] = [];
     const tracings: any[] = [];
-    await use(async (trace: string | undefined, { host, port, stdin, cwd } = {}) => {
+    await use(async (trace: string | undefined, { host, port, stdin, cwd, cli = 'core', config } = {}) => {
       const command = [
         'node',
-        path.join(__dirname, '../../packages/playwright-core/cli.js'),
+        path.join(__dirname, cli === 'test' ? '../../packages/playwright/cli.js' : '../../packages/playwright-core/cli.js'),
         'show-trace',
         '--port', '' + (port ?? '0'),
       ];
+      if (config)
+        command.push('--config', config);
       if (host)
         command.push('--host', host);
       if (stdin)

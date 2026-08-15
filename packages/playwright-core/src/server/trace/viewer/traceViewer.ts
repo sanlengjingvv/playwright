@@ -45,7 +45,15 @@ export type TraceViewerServerOptions = {
   port?: number;
   isServer?: boolean;
   transport?: Transport;
+  bodyFormatter?: TraceViewerBodyFormatter;
 };
+
+export type TraceViewerBodyFormatter = (body: Buffer, context: {
+  contentType: string;
+  url: string;
+  method: string;
+  kind: 'request' | 'response';
+}) => string | Promise<string>;
 
 export type TraceViewerRedirectOptions = {
   args?: string[];
@@ -152,7 +160,7 @@ export async function startTraceViewerServer(options: TraceViewerServerOptions &
     });
   }
 
-  const transport = options.transport || (options.isServer ? new StdinServer() : undefined);
+  const transport = options.transport || ((options.isServer || options.bodyFormatter) ? new TraceViewerTransport(!!options.isServer, options.bodyFormatter) : undefined);
   if (transport)
     server.createWebSocket(() => transport);
 
@@ -270,21 +278,23 @@ export async function openTraceInBrowser(url: string) {
     await open(url.replace('0.0.0.0', 'localhost')).catch(() => {});
 }
 
-class StdinServer implements Transport {
+class TraceViewerTransport implements Transport {
   private _pollTimer: NodeJS.Timeout | undefined;
   private _traceUrl: string | undefined;
 
-  constructor() {
-    process.stdin.on('data', data => {
-      const url = validateTraceUrlOrPath(data.toString().trim());
-      if (!url || url === this._traceUrl)
-        return;
-      if (url.endsWith('.json'))
-        this._pollLoadTrace(url);
-      else
-        this._loadTrace(url);
-    });
-    process.stdin.on('close', () => gracefullyProcessExitDoNotHang(0));
+  constructor(stdin: boolean, private _bodyFormatter?: TraceViewerBodyFormatter) {
+    if (stdin) {
+      process.stdin.on('data', data => {
+        const url = validateTraceUrlOrPath(data.toString().trim());
+        if (!url || url === this._traceUrl)
+          return;
+        if (url.endsWith('.json'))
+          this._pollLoadTrace(url);
+        else
+          this._loadTrace(url);
+      });
+      process.stdin.on('close', () => gracefullyProcessExitDoNotHang(0));
+    }
   }
 
   onconnect() {
@@ -294,6 +304,22 @@ class StdinServer implements Transport {
     if (method === 'initialize') {
       if (this._traceUrl)
         this._loadTrace(this._traceUrl);
+      return;
+    }
+    if (method === 'traceViewerInfo')
+      return { hasBodyFormatter: !!this._bodyFormatter };
+    if (method === 'formatTraceViewerBody') {
+      if (!this._bodyFormatter)
+        throw new Error('No trace viewer body formatter is configured.');
+      const text = await this._bodyFormatter(Buffer.from(params.body, 'base64'), {
+        contentType: params.contentType,
+        url: params.url,
+        method: params.method,
+        kind: params.kind,
+      });
+      if (typeof text !== 'string')
+        throw new Error('config.traceViewer.bodyFormatter must return a string.');
+      return { text };
     }
   }
 

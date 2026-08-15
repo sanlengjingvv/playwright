@@ -158,6 +158,10 @@ export class TestServerDispatcher implements TestServerInterface {
 
   async ping() {}
 
+  async traceViewerInfo(): Promise<{ hasBodyFormatter: boolean }> {
+    return { hasBodyFormatter: !!this._testRunner.lastLoadedConfig()?.traceViewer?.bodyFormatter };
+  }
+
   async open(params: Parameters<TestServerInterface['open']>[0]): ReturnType<TestServerInterface['open']> {
     if (isUnderTest())
       return;
@@ -181,7 +185,22 @@ export class TestServerDispatcher implements TestServerInterface {
     const { reporter, report } = await this._collectingReporter();
     this._globalSetupReport = report;
     const { status, env } = await this._testRunner.runGlobalSetup([reporter, new ListReporter()]);
-    return { report, status, env };
+    return { report, status, env, hasTraceViewerBodyFormatter: !!this._testRunner.lastLoadedConfig()?.traceViewer?.bodyFormatter };
+  }
+
+  async formatTraceViewerBody(params: Parameters<TestServerInterface['formatTraceViewerBody']>[0]): ReturnType<TestServerInterface['formatTraceViewerBody']> {
+    const formatter = this._testRunner.lastLoadedConfig()?.traceViewer?.bodyFormatter;
+    if (!formatter)
+      throw new Error('No trace viewer body formatter is configured.');
+    const text = await formatter(Buffer.from(params.body, 'base64'), {
+      contentType: params.contentType,
+      url: params.url,
+      method: params.method,
+      kind: params.kind,
+    });
+    if (typeof text !== 'string')
+      throw new Error('config.traceViewer.bodyFormatter must return a string.');
+    return { text };
   }
 
   async runGlobalTeardown() {

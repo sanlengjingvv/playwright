@@ -65,11 +65,23 @@ export interface FullProject<TestArgs = {}, WorkerArgs = {}> {
 
 type LiteralUnion<T extends U, U = string> = T | (U & { zz_IGNORE_ME?: never });
 
+export type TraceViewerBodyFormatter = (body: Buffer, context: {
+  contentType: string;
+  url: string;
+  method: string;
+  kind: 'request' | 'response';
+}) => string | Promise<string>;
+
+export type TraceViewerConfig = {
+  bodyFormatter?: TraceViewerBodyFormatter;
+};
+
 interface TestConfig<TestArgs = {}, WorkerArgs = {}> {
   projects?: Project<TestArgs, WorkerArgs>[];
   reporter?: LiteralUnion<'list'|'dot'|'line'|'github'|'json'|'junit'|'null'|'html', string> | ReporterDescription[];
   use?: UseOptions<TestArgs, WorkerArgs>;
   webServer?: TestConfigWebServer | TestConfigWebServer[];
+  traceViewer?: TraceViewerConfig;
 }
 
 export interface Config<TestArgs = {}, WorkerArgs = {}> extends TestConfig<TestArgs, WorkerArgs> {

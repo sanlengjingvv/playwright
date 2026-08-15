@@ -35,7 +35,12 @@ import type { TraceMode } from '../types/test';
 import type { Command } from 'commander';
 
 setBoxedStackPrefixes([packageRoot]);
-libCli.decorateProgram(program);
+libCli.decorateProgram(program, {
+  loadTraceViewerBodyFormatter: async configFile => {
+    const loadedConfig = await configLoader.loadConfigFromFile(configFile);
+    return loadedConfig.traceViewer?.bodyFormatter;
+  },
+});
 
 function addTestCommand(program: Command) {
   const command = program.command('test [test-filter...]');

@@ -47,7 +47,8 @@ import { MetadataWithCommitInfo } from '@testIsomorphic/types';
 import type { ActionGroup } from '@isomorphic/protocolFormatter';
 import { DialogToolbarButton } from '@web/components/dialogToolbarButton';
 import { SettingsView } from './settingsView';
-import { TraceModelContext } from './traceModelContext';
+import { TraceModelContext, TraceViewerBodyFormatterContext } from './traceModelContext';
+import type { TraceViewerBodyFormatter } from './traceModelContext';
 import type { TreeState } from '@web/components/treeView';
 
 export type WorkbenchProps = {
@@ -63,12 +64,15 @@ export type WorkbenchProps = {
   onOpenExternally?: (location: SourceLocation) => void;
   revealSource?: boolean;
   testRunMetadata?: MetadataWithCommitInfo;
+  traceViewerBodyFormatter?: TraceViewerBodyFormatter;
 };
 
 export const Workbench: React.FunctionComponent<WorkbenchProps> = props => {
   const partition = traceUriToPartition(props.model?.traceUri);
   return <TraceModelContext.Provider value={props.model}>
-    <PartitionedWorkbench partition={partition} {...props} />
+    <TraceViewerBodyFormatterContext.Provider value={props.traceViewerBodyFormatter}>
+      <PartitionedWorkbench partition={partition} {...props} />
+    </TraceViewerBodyFormatterContext.Provider>
   </TraceModelContext.Provider>;
 };
 

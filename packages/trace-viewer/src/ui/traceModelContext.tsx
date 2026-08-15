@@ -19,6 +19,18 @@ import type { TraceModel } from '@isomorphic/trace/traceModel';
 
 export const TraceModelContext = React.createContext<TraceModel | undefined>(undefined);
 
+export type TraceViewerBodyFormatter = (params: {
+  body: string,
+  contentType: string,
+  url: string,
+  method: string,
+  kind: 'request' | 'response',
+}) => Promise<string>;
+
+export const TraceViewerBodyFormatterContext = React.createContext<TraceViewerBodyFormatter | undefined>(undefined);
+
 export const useTraceModel = () => {
   return React.useContext(TraceModelContext);
 };
+
+export const useTraceViewerBodyFormatter = () => React.useContext(TraceViewerBodyFormatterContext);

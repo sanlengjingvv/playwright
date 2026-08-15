@@ -639,6 +639,39 @@ test('should have network request overrides', async ({ page, server, runAndTrace
   await expect(traceViewer.networkRequests).not.toContainText([/continued/]);
 });
 
+test('should use project body formatter with show-trace', async ({ page, context, server, showTraceViewer }, testInfo) => {
+  server.setRoute('/show-trace-bigint', (_, response) => {
+    response.setHeader('Content-Type', 'application/json');
+    response.end('{"id":9007199254740993}');
+  });
+  await context.tracing.start({ snapshots: true });
+  await page.goto(server.EMPTY_PAGE);
+  await page.evaluate(url => fetch(url).then(response => response.text()), server.PREFIX + '/show-trace-bigint');
+  const recordedTrace = testInfo.outputPath('show-trace-body-formatter.zip');
+  await context.tracing.stop({ path: recordedTrace });
+
+  const configDir = testInfo.outputPath('body-formatter-project');
+  await fs.promises.mkdir(configDir, { recursive: true });
+  await fs.promises.writeFile(path.join(configDir, 'playwright.config.js'), `
+    module.exports = {
+      traceViewer: {
+        bodyFormatter: (body, context) => 'custom ' + context.kind + ': ' + body.toString('utf8'),
+      },
+    };
+  `);
+
+  const traceViewer = await showTraceViewer(recordedTrace, { cwd: configDir, cli: 'test' });
+  await traceViewer.showNetworkTab();
+  await traceViewer.networkRequests.filter({ hasText: 'show-trace-bigint' }).click();
+  await traceViewer.networkTab.getByRole('tab', { name: 'Response' }).click();
+  const responsePanel = traceViewer.page.getByRole('tabpanel', { name: 'Response' });
+  await expect(responsePanel.locator('.CodeMirror-code')).toContainText('9007199254740992');
+  await responsePanel.getByRole('button', { name: 'Customize pretty print', exact: true }).click();
+  await expect(responsePanel.locator('.CodeMirror-code .CodeMirror-line')).toHaveText([
+    'custom response: {"id":9007199254740993}',
+  ], { useInnerText: true });
+});
+
 test('should show canceled status for requests canceled by navigation', async ({ page, server, runAndTrace }) => {
   server.setRoute('/slow', (_req, _res) => {
     // Never respond so the request stays in-flight until navigation cancels it.

@@ -31,10 +31,12 @@ import { screenshot, pdf } from './browserActions';
 import { program as cliProgram } from '../tools/cli-client/program';
 import { decorateMCPCommand } from '../tools/mcp/program';
 
-import type { TraceViewerServerOptions } from '../server/trace/viewer/traceViewer';
+import type { TraceViewerBodyFormatter, TraceViewerServerOptions } from '../server/trace/viewer/traceViewer';
 import type { Command } from 'commander';
 
-export function decorateProgram(program: Command) {
+export function decorateProgram(program: Command, decorateOptions: {
+  loadTraceViewerBodyFormatter?: (configFile?: string) => Promise<TraceViewerBodyFormatter | undefined>;
+} = {}) {
 
   program
       .version('Version ' + (process.env.PW_CLI_DISPLAY_VERSION || packageJSON.version))
@@ -204,31 +206,42 @@ export function decorateProgram(program: Command) {
         launchBrowserServer(options.browser, options.config);
       });
 
-  program
+  const showTraceCommand = program
       .command('show-trace [trace]')
       .option('-b, --browser <browserType>', 'browser to use, one of cr, chromium, ff, firefox, wk, webkit', 'chromium')
       .option('-h, --host <host>', 'Host to serve trace on; specifying this option opens trace in a browser tab')
       .option('-p, --port <port>', 'Port to serve trace on, 0 for any free port; specifying this option opens trace in a browser tab')
-      .option('--stdin', 'Accept trace URLs over stdin to update the viewer')
-      .description('show trace viewer')
-      .action(async function(trace, options) {
-        if (options.browser === 'cr')
-          options.browser = 'chromium';
-        if (options.browser === 'ff')
-          options.browser = 'firefox';
-        if (options.browser === 'wk')
-          options.browser = 'webkit';
+      .option('--stdin', 'Accept trace URLs over stdin to update the viewer');
+  if (decorateOptions.loadTraceViewerBodyFormatter)
+    showTraceCommand.option('-c, --config <file>', `Configuration file, or a test directory with optional "playwright.config.{m,c}?{js,ts}"`);
+  showTraceCommand.description('show trace viewer')
+      .action(async function(trace, commandOptions) {
+        if (commandOptions.browser === 'cr')
+          commandOptions.browser = 'chromium';
+        if (commandOptions.browser === 'ff')
+          commandOptions.browser = 'firefox';
+        if (commandOptions.browser === 'wk')
+          commandOptions.browser = 'webkit';
+
+        let bodyFormatter: TraceViewerBodyFormatter | undefined;
+        try {
+          bodyFormatter = await decorateOptions.loadTraceViewerBodyFormatter?.(commandOptions.config);
+        } catch (e) {
+          logErrorAndExit(e as Error);
+          return;
+        }
 
         const openOptions: TraceViewerServerOptions = {
-          host: options.host,
-          port: +options.port,
-          isServer: !!options.stdin,
+          host: commandOptions.host,
+          port: +commandOptions.port,
+          isServer: !!commandOptions.stdin,
+          bodyFormatter,
         };
 
-        if (options.port !== undefined || options.host !== undefined)
+        if (commandOptions.port !== undefined || commandOptions.host !== undefined)
           runTraceInBrowser(trace, openOptions).catch(logErrorAndExit);
         else
-          runTraceViewerApp(trace, options.browser, openOptions).catch(logErrorAndExit);
+          runTraceViewerApp(trace, commandOptions.browser, openOptions).catch(logErrorAndExit);
       }).addHelpText('afterAll', `
   Examples:
 

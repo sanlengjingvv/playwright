@@ -24,6 +24,7 @@ import type { ContextEntry } from '@isomorphic/trace/entries';
 import type { SourceLocation } from '@isomorphic/trace/traceModel';
 import { TraceModel } from '@isomorphic/trace/traceModel';
 import { Workbench } from './workbench';
+import type { TraceViewerBodyFormatter } from './traceModelContext';
 
 export const TraceView: React.FC<{
   item: { treeItem?: TreeItem, testFile?: SourceLocation, testCase?: reporterTypes.TestCase },
@@ -31,7 +32,8 @@ export const TraceView: React.FC<{
   onOpenExternally?: (location: SourceLocation) => void,
   revealSource?: boolean,
   pathSeparator: string,
-}> = ({ item, rootDir, onOpenExternally, revealSource, pathSeparator }) => {
+  traceViewerBodyFormatter?: TraceViewerBodyFormatter,
+}> = ({ item, rootDir, onOpenExternally, revealSource, pathSeparator, traceViewerBodyFormatter }) => {
   const [model, setModel] = React.useState<{ model: TraceModel, isLive: boolean } | undefined>(undefined);
   const [counter, setCounter] = React.useState(0);
   const pollTimer = React.useRef<NodeJS.Timeout | null>(null);
@@ -99,6 +101,7 @@ export const TraceView: React.FC<{
     defaultAnnotations={item.testCase?.annotations ?? []}
     onOpenExternally={onOpenExternally}
     revealSource={revealSource}
+    traceViewerBodyFormatter={traceViewerBodyFormatter}
   />;
 };
 
