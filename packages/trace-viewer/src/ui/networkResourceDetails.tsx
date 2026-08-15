@@ -40,6 +40,13 @@ type RequestBody = { text: string, bytes?: Uint8Array, mimeType?: string } | nul
 type ResponseBody = { dataUrl?: string, text?: string, bytes?: Uint8Array, mimeType?: string, font?: BufferSource } | null;
 type FormattableBody = { text?: string, bytes?: Uint8Array, mimeType?: string } | null;
 type FormattedBodyResult = { text: string, error?: boolean, customError?: boolean };
+type CustomFormattedBodyResult = {
+  result: FormattedBodyResult;
+  body: FormattableBody;
+  formatter: TraceViewerBodyFormatter;
+  resource: ResourceSnapshot;
+  kind: 'request' | 'response';
+};
 type IndexedWebSocketMessage = WebSocketMessage & { index: number, byteLength: number };
 
 
@@ -579,28 +586,42 @@ const useFormattedBody = (
     }
   }, [body, showFormatted]);
 
-  const customResult = useAsyncMemo<FormattedBodyResult | undefined>(async () => {
+  const customResult = useAsyncMemo<CustomFormattedBodyResult | undefined>(async () => {
     if (!showFormatted || !showCustomFormatted || !customFormatter || !resource || !kind || body?.bytes === undefined)
       return undefined;
     try {
       return {
-        // Encoded here rather than when the body is read, so that selecting a request costs
-        // nothing until the custom formatter is actually switched on.
-        text: await customFormatter({
-          body: bytesToBase64(body.bytes),
-          contentType: body.mimeType || '',
-          url: resource.request.url,
-          method: resource.request.method,
-          kind,
-        }),
+        result: {
+          // Encoded here rather than when the body is read, so that selecting a request avoids
+          // the base64 conversion until the custom formatter is actually switched on.
+          text: await customFormatter({
+            body: bytesToBase64(body.bytes),
+            contentType: body.mimeType || '',
+            url: resource.request.url,
+            method: resource.request.method,
+            kind,
+          }),
+        },
+        body,
+        formatter: customFormatter,
+        resource,
+        kind,
       };
     } catch {
-      return { text: defaultResult.text, customError: true };
+      return {
+        result: { text: defaultResult.text, customError: true },
+        body,
+        formatter: customFormatter,
+        resource,
+        kind,
+      };
     }
   }, [body, customFormatter, defaultResult.text, kind, resource, showCustomFormatted, showFormatted], undefined);
 
-  if (showFormatted && showCustomFormatted && customFormatter && customResult)
-    return customResult;
+  if (showFormatted && showCustomFormatted && customFormatter &&
+      customResult?.body === body && customResult.formatter === customFormatter &&
+      customResult.resource === resource && customResult.kind === kind)
+    return customResult.result;
   return defaultResult;
 };
 

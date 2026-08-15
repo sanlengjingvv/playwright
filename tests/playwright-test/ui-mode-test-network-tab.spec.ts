@@ -293,7 +293,9 @@ test('should customize pretty-printing with the project body formatter', async (
       import { defineConfig } from '@playwright/test';
       export default defineConfig({
         traceViewer: {
-          bodyFormatter: (body, context) => {
+          bodyFormatter: async (body, context) => {
+            if (context.url.endsWith('/response-protobuf'))
+              await new Promise(resolve => setTimeout(resolve, 750));
             if (context.contentType === 'application/x-protobuf')
               return context.kind + ' protobuf: ' + body.toString('hex');
             return 'custom ' + context.kind + ': ' + body.toString('utf8');
@@ -342,6 +344,8 @@ test('should customize pretty-printing with the project body formatter', async (
   await prettyPrint.click();
 
   await networkList.filter({ hasText: 'response-protobuf' }).click();
+  // Do not show the previous request's custom result while the async formatter is pending.
+  await expect(responsePanel.locator('.CodeMirror-code')).not.toContainText('custom response: {"id":9007199254740993}', { timeout: 250 });
   await expect(responsePanel.locator('.CodeMirror-code .CodeMirror-line')).toHaveText([
     'response protobuf: 089601',
   ], { useInnerText: true });

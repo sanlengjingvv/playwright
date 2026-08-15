@@ -234,7 +234,6 @@ export function decorateProgram(program: Command, decorateOptions: {
             logErrorAndExit(e as Error);
             return;
           }
-          // eslint-disable-next-line no-console
           console.error(`Failed to load Playwright configuration, continuing without a trace viewer body formatter:\n${(e as Error).message}`);
         }
 
